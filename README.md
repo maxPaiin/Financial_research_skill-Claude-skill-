@@ -6,7 +6,7 @@ End-to-end quantitative research pipeline for stock-type mutual funds, packaged 
 
 ---
 
-## ⚠️ Disclaimer / 免責聲明
+## Disclaimer / 免責聲明
 
 > **This skill produces an AI-generated analysis. The reports it generates MUST NOT be used as investment advice.**
 > All scores, rankings, backtest metrics, and forward views are derived from publicly available data and statistical models. Past performance does not guarantee future results. Data sources (yfinance, FRED, fund prospectus PDFs) may contain errors or delays. Any investment decision is solely the user's responsibility.
@@ -216,7 +216,7 @@ This skill also depends on the public `pdf` skill at `/mnt/skills/public/pdf/SKI
 
 ---
 
-## ⚠️ Disclaimer (repeat) / 免責聲明(再次強調)
+## Disclaimer (repeat) / 免責聲明(再次強調)
 
 > **The reports produced by this skill are AI-generated analyses and MUST NOT be used as investment advice.**
 > Past performance does not guarantee future results. Data sources may contain errors or delays. Any investment decision made based on these reports is solely the user's responsibility.
