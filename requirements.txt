@@ -1,0 +1,11 @@
+# Python dependencies for the financial-research skill
+# Install: pip install -r requirements.txt --break-system-packages
+
+pypdf>=4.0          # Stage 0 / Stage 1 PDF parsing
+yfinance>=0.2.40    # Stage 2 / Stage 8 market data
+fredapi>=0.5.1      # Stage 2 macro data (optional, needs FRED_API_KEY env)
+pandas>=2.0
+pandas-datareader>=0.10
+numpy>=1.24
+reportlab>=4.0      # Stage 10 PDF generation
+matplotlib>=3.7     # Stage 10 charts
