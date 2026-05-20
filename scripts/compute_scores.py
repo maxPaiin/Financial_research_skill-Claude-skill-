@@ -1,224 +1,90 @@
 """
-Stage 3: Compute per-stock scores using the formulas in
-references/scoring_playbook.md.
+Stage 2e: Fundamental quality percentile scoring for PASSED stocks only.
 
-Inputs:
-  market.json — output of fetch_market_data.py
-  macro.json  — output of fetch_macro_data.py
+Computes fundamental_quality_score (0–100) as the percentile rank of
+5-year average ROE within the passed universe.
 
-Output:
-  scores_per_stock.json — per-stock industry/growth/quality_value/momentum scores.
+Why ROE 5y avg as single quality metric (per §3.2.5):
+- Most discriminating single number for "is this a quality business"
+- 5y average dampens single-year noise
+- More universally available than EV/EBITDA across ADRs
+- Quality screen already filtered persistent-negative-ROE stocks
 """
 
-import sys
+from __future__ import annotations
+
 import json
 import argparse
-import statistics
 from pathlib import Path
-from collections import defaultdict
+from typing import Optional
 
 
-def percentile(value, distribution):
-    """Return percentile rank of value within distribution (0..100). Skip Nones."""
-    cleaned = [x for x in distribution if x is not None]
-    if not cleaned or value is None:
+def percentile_rank(value: float, distribution: list[float]) -> float:
+    """Percentile rank of value in distribution: 0 (lowest) to 100 (highest)."""
+    if not distribution:
+        return 50.0
+    n_below = sum(1 for v in distribution if v < value)
+    n_equal = sum(1 for v in distribution if v == value)
+    return round(100.0 * (n_below + 0.5 * n_equal) / len(distribution), 2)
+
+
+def roe_5y_average(roe_values: list[Optional[float]]) -> Optional[float]:
+    """Mean of non-None ROE values. Returns None if fewer than 2 available."""
+    valid = [v for v in roe_values if v is not None]
+    if len(valid) < 2:
         return None
-    cleaned.sort()
-    below = sum(1 for x in cleaned if x < value)
-    return int(round(below / len(cleaned) * 100))
-
-
-# ---------- Industry score ----------
-
-def macro_score(industry, inflation, rate_change, fx_regime):
-    score = 0
-    if industry in {"commodity", "trading", "materials", "energy"}:
-        if (inflation or 0) > 0.025:
-            score += 1
-    if industry in {"financial", "banks", "insurance"}:
-        if (rate_change or 0) > 0:
-            score += 1
-    if industry in {"export", "auto", "semiconductors_jp"}:
-        if fx_regime == "weak_jpy":
-            score += 1
-    return score   # 0..3
-
-
-def industry_score(macro, trend, relative_strength):
-    score = 0
-    score += macro * 20
-    if trend is not None and trend > 0:
-        score += 30
-    if relative_strength is not None and relative_strength > 0:
-        score += 50
-    else:
-        score += 10
-    return min(score, 100)
-
-
-# ---------- Growth score ----------
-
-def value_score(pe, industry_pe_dist):
-    if pe is None:
-        return None
-    p = percentile(pe, industry_pe_dist)
-    return None if p is None else 100 - p
-
-
-def revision_pct(eps_t, eps_t_minus_1):
-    if eps_t is None or eps_t_minus_1 is None or eps_t_minus_1 == 0:
-        return None
-    return (eps_t - eps_t_minus_1) / abs(eps_t_minus_1)
-
-
-def revision_score(rev):
-    if rev is None:
-        return 50   # neutral when missing
-    if rev > 0.10:
-        return 100
-    elif rev > 0.05:
-        return 85
-    elif rev > 0:
-        return 70
-    elif rev > -0.05:
-        return 40
-    else:
-        return 20
-
-
-# ---------- Quality & Value score ----------
-
-def ev_score(ev_ebitda, industry_dist):
-    if ev_ebitda is None or ev_ebitda <= 0:
-        return None
-    p = percentile(ev_ebitda, [x for x in industry_dist if x and x > 0])
-    return None if p is None else 100 - p
-
-
-def roe_score(roe, industry_dist):
-    if roe is None:
-        return None
-    return percentile(roe, industry_dist)
-
-
-# ---------- Momentum (optional) ----------
-
-def momentum_score(ret_6m, universe_dist):
-    if ret_6m is None:
-        return None
-    return percentile(ret_6m, universe_dist)
-
-
-# ---------- Composite ----------
-
-def safe_blend(*pairs):
-    """Weighted average, dropping None components and renormalizing weights."""
-    total_w = sum(w for v, w in pairs if v is not None)
-    if total_w == 0:
-        return None
-    return sum(v * w for v, w in pairs if v is not None) / total_w
+    return round(sum(valid) / len(valid), 4)
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--market", required=True)
-    ap.add_argument("--macro", required=True)
-    ap.add_argument("--out", required=True)
+    ap.add_argument("--fundamentals", required=True, help="fundamentals.json from provider fetch")
+    ap.add_argument("--screen", required=True, help="screen_results.json from quality_screen step")
+    ap.add_argument("--out", required=True, help="Output scores_per_stock.json")
     args = ap.parse_args()
 
-    market = json.loads(Path(args.market).read_text(encoding="utf-8"))
-    macro = json.loads(Path(args.macro).read_text(encoding="utf-8"))
+    fundamentals = json.loads(Path(args.fundamentals).read_text(encoding="utf-8"))
+    screen_results = json.loads(Path(args.screen).read_text(encoding="utf-8"))
 
-    stocks = market["stocks"]
+    passed_tickers = {
+        r["ticker"] for r in screen_results.get("results", []) if r.get("passed")
+    }
 
-    # Build industry-level distributions for percentile calcs
-    by_industry_pe = defaultdict(list)
-    by_industry_ev = defaultdict(list)
-    by_industry_roe = defaultdict(list)
-    universe_6m_returns = []
-
-    for s in stocks.values():
-        if s.get("status") != "ok":
+    # Compute ROE 5y avg for all passed tickers
+    roe_avgs: dict[str, Optional[float]] = {}
+    for ticker, rec in fundamentals.items():
+        if ticker not in passed_tickers:
             continue
-        ind = s.get("industry") or "other"
-        if s.get("pe") is not None and s["pe"] > 0:
-            by_industry_pe[ind].append(s["pe"])
-        if s.get("ev_ebitda") is not None and s["ev_ebitda"] > 0:
-            by_industry_ev[ind].append(s["ev_ebitda"])
-        if s.get("roe") is not None:
-            by_industry_roe[ind].append(s["roe"])
-        if s.get("past_6m_return") is not None:
-            universe_6m_returns.append(s["past_6m_return"])
+        roe_vals = [year.get("value") for year in rec.get("roe_5y", []) if year]
+        roe_avgs[ticker] = roe_5y_average(roe_vals)
 
-    inflation = macro.get("inflation_yoy")
-    rate_change = macro.get("interest_rate_yoy_change")
-    fx_regime = macro.get("fx_regime", "normal")
-    index_return = market.get("index_return_12m")
+    valid_roe = [v for v in roe_avgs.values() if v is not None]
 
-    out = {"as_of": macro.get("as_of"), "stocks": {}}
+    scores: dict[str, dict] = {}
+    for ticker in passed_tickers:
+        roe_avg = roe_avgs.get(ticker)
+        if roe_avg is not None:
+            fq_score = percentile_rank(roe_avg, valid_roe)
+        else:
+            fq_score = None
 
-    for tkr, s in stocks.items():
-        rec = {"ticker": tkr, "industry": s.get("industry")}
-
-        if s.get("status") != "ok":
-            rec["status"] = "unscored"
-            rec["reason"] = s.get("reason", "data_missing")
-            out["stocks"][tkr] = rec
-            continue
-
-        ind = s.get("industry") or "other"
-        # Industry score
-        m = macro_score(ind, inflation, rate_change, fx_regime)
-        etf_ret = s.get("industry_etf_return_12m")
-        rs = (etf_ret - index_return) if (etf_ret is not None and index_return is not None) else None
-        ind_sc = industry_score(m, etf_ret, rs)
-
-        # Growth score
-        v_sc = value_score(s.get("pe"), by_industry_pe.get(ind, []))
-        rev = revision_pct(s.get("eps_estimate_t"), s.get("eps_estimate_t_minus_1"))
-        r_sc = revision_score(rev)
-        grw_sc = safe_blend((v_sc, 0.5), (r_sc, 0.5))
-
-        # Quality & Value
-        ev_sc = ev_score(s.get("ev_ebitda"), by_industry_ev.get(ind, []))
-        roe_sc = roe_score(s.get("roe"), by_industry_roe.get(ind, []))
-        qv_sc = safe_blend((ev_sc, 0.5), (roe_sc, 0.5))
-
-        # Momentum
-        mom_sc = momentum_score(s.get("past_6m_return"), universe_6m_returns)
-
-        # Neutral total (pre-strategy)
-        total = safe_blend((ind_sc, 0.30), (grw_sc, 0.30), (qv_sc, 0.40))
-
-        rec.update({
+        rec = fundamentals.get(ticker, {})
+        scores[ticker] = {
+            "ticker": ticker,
             "status": "ok",
-            "industry_score": ind_sc,
-            "growth_score": grw_sc,
-            "quality_value_score": qv_sc,
-            "momentum_score": mom_sc,
-            "neutral_total_score": total,
-            # Raw inputs preserved for audit
-            "raw": {
-                "pe": s.get("pe"),
-                "pbr": s.get("pbr"),
-                "ev_ebitda": s.get("ev_ebitda"),
-                "roe": s.get("roe"),
-                "eps_revision": rev,
-                "industry_etf_return_12m": etf_ret,
-                "index_return_12m": index_return,
-                "relative_strength": rs,
-                "past_6m_return": s.get("past_6m_return"),
-                "macro_tilt": m,
-            },
-        })
-        out["stocks"][tkr] = rec
+            "roe_5y_avg": roe_avg,
+            "fundamental_quality_score": fq_score,
+            "ev_ebitda": (rec.get("ev_ebitda") or {}).get("value"),
+            "debt_equity": (rec.get("debt_equity") or {}).get("value"),
+            "industry": rec.get("industry"),
+            "is_adr": rec.get("is_adr", False),
+            "data_confidence": rec.get("overall_confidence"),
+        }
 
+    out = {"stocks": scores, "n_scored": len(scores)}
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(out, indent=2, ensure_ascii=False, default=str))
-
-    n_ok = sum(1 for r in out["stocks"].values() if r.get("status") == "ok")
-    n_unsc = len(out["stocks"]) - n_ok
-    print(f"Scored {n_ok} stocks ok, {n_unsc} unscored.")
+    print(f"Scored {len(scores)} passed stocks -> {args.out}")
 
 
 if __name__ == "__main__":

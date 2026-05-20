@@ -1,7 +1,11 @@
-# Disclaimer / 免責聲明
+## Disclaimer
 
-> **This is an AI-generated analysis and should NOT be used as investment advice.**
-> All scores, rankings, backtest metrics, and forward views are derived from publicly available data and statistical models. Past performance does not guarantee future results. Market conditions change. Data sources (yfinance, FRED, fund prospectus PDFs) may contain errors or be delayed. The user is solely responsible for any investment decisions.
->
-> **本報告為人工智能生成之分析,不可作為投資建議。**
-> 所有評分、排名、回測指標及前瞻觀點均源自公開資料與統計模型。歷史表現不保證未來結果。市場狀況持續變化,資料來源(yfinance、FRED、基金產品文件 PDF)可能存在錯誤或延遲。任何投資決定由用戶自行負責。
+This report is AI-generated analysis and **must not be used as investment advice**.
+
+- Rankings, scores, and watchlist positions are derived from publicly available data and statistical models. They do not constitute recommendations to buy, sell, or hold any security.
+- Past data does not predict future returns. Market conditions change continuously.
+- Data sources (SEC EDGAR, yfinance, fund prospectus PDFs) may contain errors, omissions, or delays of 30–60 days or more.
+- The universe of stocks is limited to US-listed equities held by a small sample (7–11) of HKMA-approved funds distributed through Hong Kong private banking channels. This introduces significant selection bias that is not corrected.
+- Rankings reflect the preferences of the analyzed fund set, not the global equity market. They should not be interpreted as market-wide alpha signals.
+- This report is produced by an AI system and has not been reviewed by a licensed financial advisor or portfolio manager.
+- The user assumes sole responsibility for any investment decisions made on the basis of this report.
