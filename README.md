@@ -288,3 +288,11 @@ Three downloadable `.md` files plus a final English-only PDF:
 
 > **The reports produced by this skill are AI-generated analyses and must not be used as investment advice.**
 > Past performance does not guarantee future results. Data sources may contain errors or delays. Any investment decision made based on these reports is solely the user's responsibility.
+
+---
+
+### Appendix: Other known risks or bugs
+
+1. **Ticker Symbol Compatibility Risk**: The system normalizes tickers to the `BRK.B` format (using dots). However, `yfinance` typically requires the `BRK-B` format (using hyphens) for specific share classes. Without proper transformation in `yfinance_provider.py`, the fallback mechanism may fail for these securities.
+2. **ADR Data Coverage Risk**: `EDGARProvider` primarily retrieves data using `us-gaap` tags. Many foreign companies listed in the US (ADRs) report using `ifrs-full` (International Financial Reporting Standards) tags. This may cause EDGAR to fail in extracting fundamentals for ADRs, leading to total reliance on lower-confidence `yfinance` data.
+3. **SEC API Quota Limits**: Although a 100ms throttle is implemented, SEC EDGAR has a hard quota of 600 requests per daily session. Processing a large unique universe or running multiple pipelines in a short window may trigger 429 errors or exhaust the quota.
