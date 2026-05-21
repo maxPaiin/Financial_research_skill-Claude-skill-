@@ -8,6 +8,7 @@ This is the only file that imports yfinance — canonical per §8.1 acceptance c
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date
 from typing import Optional
 
@@ -17,6 +18,21 @@ from .base import DataPoint, FundamentalsRecord, FundamentalsProvider, DEFAULT_C
 from .industry_map import normalize as normalize_industry
 
 log = logging.getLogger(__name__)
+
+# Matches the country variants yfinance returns for US domiciles. The earlier
+# implementation hard-listed ("UNITED STATES", "US", "") and missed common
+# values like "USA" or "United States of America" — which then flagged
+# obviously-domestic stocks as ADRs.
+_US_COUNTRY_RE = re.compile(
+    r"^(?:US|USA|U\.S\.|U\.S\.A\.|UNITED\s+STATES(?:\s+OF\s+AMERICA)?)$",
+    re.IGNORECASE,
+)
+
+
+def _is_us_country(raw: Optional[str]) -> bool:
+    if not raw:
+        return False
+    return bool(_US_COUNTRY_RE.match(raw.strip()))
 
 
 class yfinanceProvider(FundamentalsProvider):
@@ -94,9 +110,12 @@ class yfinanceProvider(FundamentalsProvider):
             adv = DataPoint(value=adv_usd, confidence=conf, source=source_tag, asof=asof) \
                 if adv_usd else None
 
-            # ADR detection heuristic
-            country = info.get("country", "")
-            is_adr = country.upper() not in ("UNITED STATES", "US", "")
+            # ADR detection: a US-listed ticker whose company domicile is
+            # not the US. If yfinance returns no country at all, we
+            # conservatively treat it as not-ADR (extraction already filtered
+            # to US-listed equities, so the listing side is implied).
+            country = info.get("country")
+            is_adr = bool(country) and not _is_us_country(country)
 
             return FundamentalsRecord(
                 ticker=ticker,
@@ -109,6 +128,10 @@ class yfinanceProvider(FundamentalsProvider):
                 market_cap=market_cap,
                 adv=adv,
                 is_adr=is_adr,
+                # yfinance is a live snapshot — data is as of "now" (today).
+                # If EDGAR also contributed, the registry's preserved EDGAR
+                # data_asof (latest 10-K end-date) wins; see registry.fetch().
+                data_asof=date.today(),
             )
         except Exception as e:
             log.warning("yfinance fetch failed for %s: %s", ticker, e)

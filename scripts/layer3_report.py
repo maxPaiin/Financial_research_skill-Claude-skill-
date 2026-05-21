@@ -11,7 +11,7 @@ import argparse
 from pathlib import Path
 
 
-_DISCLAIMER = Path("/home/claude/financial-research-skill-v0.2/assets/disclaimer.md")
+_DISCLAIMER = Path(__file__).resolve().parents[1] / "assets" / "disclaimer.md"
 
 _METHODOLOGY = """## Methodology disclosure
 
@@ -96,7 +96,7 @@ def build_layer3_md(
                 crowding_flag=crowding_flag,
                 avg_weight=s.get("avg_weight", 0),
                 max_weight=s.get("max_weight", 0),
-                asof="",
+                asof=s.get("data_asof") or "n/a",
                 confidence=fmt_metric(s.get("data_confidence")),
                 roe_avg=fmt_metric(s.get("roe_5y_avg"), ".1%") if s.get("roe_5y_avg") else "n/a",
                 ev_ebitda=fmt_metric(s.get("ev_ebitda")),

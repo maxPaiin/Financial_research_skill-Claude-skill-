@@ -18,17 +18,24 @@ description: End-to-end quantitative research for stock-type mutual funds. Parse
 | 1b–d | `extract_holdings.py --dedupe` | `holdings.json` | `holdings.json` (enriched) |
 | 1e | `layer1_report.py` | `holdings.json` | `layer1_extraction.md` |
 | 2a | `overlap_analysis.py` | `holdings.json` | `overlap.json` |
-| 2b | `providers/registry.py` (via Claude) | `holdings.json` | `fundamentals.json` |
-| 2c | `providers/resolver.py` (auto) | multi-source | `data_provenance.json` |
-| 2d | `quality_screen.py` | `fundamentals.json` | `screen_results.json` |
+| 2b | `fetch_fundamentals.py` | `holdings.json` | `fundamentals.json`, `unscored_tickers.json`, `data_provenance.json` |
+| 2c | (inside 2b via `providers/resolver.py`) | EDGAR + yfinance per ticker | conflict entries appended to `data_provenance.json` |
+| 2d | `quality_screen.py` | `holdings.json`, `fundamentals.json`, `unscored_tickers.json` | `screen_results.json` |
 | 2e | `compute_scores.py` | `fundamentals.json`, `screen_results.json` | `scores_per_stock.json` |
-| 2f | `crowding_signal.py` (via Claude) | `overlap.json` | `crowding_signals.json` |
+| 2f | `crowding_signal.py` | `overlap.json` | `crowding_signals.json` |
 | 2g | `layer2_report.py` | overlap, screen, fundamentals, crowding | `layer2_screening.md` |
 | 3a | `build_rankings.py` | `scores_per_stock.json`, `crowding_signals.json`, `overlap.json` | `rankings.json` |
 | 3b | Claude (LLM, 3 batches of 5) | `rankings.json` | rationale cards |
 | 3c | Claude (LLM) | all Layer 2 outputs | honest framing prose |
 | 3d | `layer3_report.py` | `rankings.json`, framing, rationale | `layer3_ranked_advice.md` |
 | 4 | `build_report.py` | three layer .md files | `financial_research_report.pdf` |
+
+> **Stage 2c (multi-source resolution):** Runs implicitly inside Stage 2b.
+> For each ticker, both EDGAR and yfinance are consulted; overlapping fields
+> (`debt_equity`, latest-year ROE) are merged via `providers/resolver.py`.
+> The first source for each field wins on agreement; on disagreement the
+> higher-confidence source wins and confidence is halved when the diff exceeds
+> 20%. Every comparison that disagrees is appended to `data_provenance.json`.
 
 ---
 
@@ -55,13 +62,15 @@ After a successful run, these files exist:
   layer1_extraction.md       # Layer 1 summary
   layer2_screening.md        # Overlap + quality screen
   layer3_ranked_advice.md    # Top-15 watchlist + methodology
-  fundamentals.json
-  overlap.json
-  screen_results.json
-  scores_per_stock.json
-  crowding_signals.json
-  rankings.json
-  data_provenance.json       # Conflict log from resolver
+  holdings.json              # Enriched by extract_holdings.py --dedupe
+  overlap.json               # Stage 2a
+  fundamentals.json          # Stage 2b — flat {ticker: record}
+  unscored_tickers.json      # Stage 2b — tickers EDGAR+yfinance failed on
+  data_provenance.json       # Stage 2b/2c — multi-source conflict log
+  screen_results.json        # Stage 2d
+  scores_per_stock.json      # Stage 2e
+  crowding_signals.json      # Stage 2f
+  rankings.json              # Stage 3a
 
 /mnt/user-data/outputs/
   financial_research_report.pdf

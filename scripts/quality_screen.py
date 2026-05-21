@@ -9,14 +9,45 @@ PASS criteria — ALL must hold:
   2. Debt/Equity available AND < 5.0 (distress ceiling)
   3. No 3 consecutive years of negative net income
   4. At least 2 of 3 key metrics available with confidence >= 0.4
+
+Inputs:
+  --holdings        holdings.json (for the universe of tickers)
+  --fundamentals    fundamentals.json (produced by fetch_fundamentals.py)
+  --unscored        unscored_tickers.json (optional; merged into output)
+  --out             screen_results.json
+
+Output schema — screen_results.json:
+{
+  "n_in_universe": 50,
+  "n_scored": 45,
+  "n_passed": 30,
+  "n_failed": 15,
+  "n_unscored": 5,
+  "results": [
+    {"ticker": "AAPL", "passed": true,  "reason": null, "detail": null,
+     "source": "edgar"},
+    {"ticker": "XYZ",  "passed": false, "reason": "roe_insufficient",
+     "detail": "ROE positive in only 2/5 years", "source": "yfinance"}
+  ],
+  "unscored": [
+    {"ticker": "ABC", "reason": "no data from EDGAR or yfinance"}
+  ]
+}
 """
 
 from __future__ import annotations
 
+import argparse
+import json
+import sys
 from dataclasses import dataclass
+from datetime import date
+from pathlib import Path
 from typing import Optional
 
-from providers.base import DataPoint, FundamentalsRecord
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from providers.base import DataPoint, FundamentalsRecord  # noqa: E402
 
 # Canonical thresholds — do not duplicate elsewhere.
 MIN_ROE_POSITIVE_YEARS = 3          # of 5
@@ -100,3 +131,120 @@ def _max_consecutive_negatives(values: list[float]) -> int:
         else:
             current_run = 0
     return max_run
+
+
+# --- Deserialization: fundamentals.json (dict) → FundamentalsRecord ---------
+
+def _dp_from_dict(x: Optional[dict]) -> Optional[DataPoint]:
+    if not isinstance(x, dict):
+        return None
+    asof_raw = x.get("asof")
+    try:
+        asof = date.fromisoformat(asof_raw) if isinstance(asof_raw, str) else date.today()
+    except ValueError:
+        asof = date.today()
+    return DataPoint(
+        value=x.get("value"),
+        confidence=float(x.get("confidence", 0.0)),
+        source=x.get("source", ""),
+        asof=asof,
+        n_sources_agreed=int(x.get("n_sources_agreed", 1)),
+    )
+
+
+def _parse_date(raw, default: Optional[date] = None) -> Optional[date]:
+    if not isinstance(raw, str):
+        return default
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        return default
+
+
+def record_from_dict(d: dict) -> FundamentalsRecord:
+    asof = _parse_date(d.get("asof"), default=date.today())
+    return FundamentalsRecord(
+        ticker=d.get("ticker", ""),
+        asof=asof,
+        roe_5y=[_dp_from_dict(x) for x in d.get("roe_5y", [])],
+        ev_ebitda=_dp_from_dict(d.get("ev_ebitda")),
+        debt_equity=_dp_from_dict(d.get("debt_equity")),
+        net_income_5y=[_dp_from_dict(x) for x in d.get("net_income_5y", [])],
+        industry=d.get("industry"),
+        market_cap=_dp_from_dict(d.get("market_cap")),
+        adv=_dp_from_dict(d.get("adv")),
+        is_adr=bool(d.get("is_adr", False)),
+        data_asof=_parse_date(d.get("data_asof"), default=None),
+    )
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--holdings", required=True, help="holdings.json with unique_universe")
+    ap.add_argument("--fundamentals", required=True, help="fundamentals.json from Stage 2b")
+    ap.add_argument("--unscored", help="Optional unscored_tickers.json from Stage 2b")
+    ap.add_argument("--out", required=True, help="Output screen_results.json path")
+    args = ap.parse_args()
+
+    holdings = json.loads(Path(args.holdings).read_text(encoding="utf-8"))
+    fundamentals = json.loads(Path(args.fundamentals).read_text(encoding="utf-8"))
+
+    universe = [u["ticker"] for u in holdings.get("unique_universe", []) if u.get("ticker")]
+    universe_set = set(universe)
+
+    unscored_in: list[dict] = []
+    if args.unscored:
+        try:
+            unscored_in = json.loads(Path(args.unscored).read_text(encoding="utf-8")).get(
+                "unscored", []
+            )
+        except FileNotFoundError:
+            unscored_in = []
+
+    unscored_tickers = {u["ticker"] for u in unscored_in if u.get("ticker")}
+
+    # Any universe ticker not in fundamentals and not already in unscored input → unscored
+    derived_unscored = [
+        {"ticker": t, "reason": "missing from fundamentals.json"}
+        for t in universe if t not in fundamentals and t not in unscored_tickers
+    ]
+    unscored = unscored_in + derived_unscored
+
+    results: list[dict] = []
+    for ticker, rec_dict in fundamentals.items():
+        if ticker not in universe_set:
+            continue  # ignore stale entries not in current universe
+        record = record_from_dict(rec_dict)
+        sr = screen(ticker, record)
+        results.append({
+            "ticker": sr.ticker,
+            "passed": sr.passed,
+            "reason": sr.reason,
+            "detail": sr.detail,
+            "source": rec_dict.get("source"),
+        })
+
+    n_passed = sum(1 for r in results if r["passed"])
+    n_failed = sum(1 for r in results if not r["passed"])
+
+    out = {
+        "n_in_universe": len(universe),
+        "n_scored": len(results),
+        "n_passed": n_passed,
+        "n_failed": n_failed,
+        "n_unscored": len(unscored),
+        "results": results,
+        "unscored": unscored,
+    }
+
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(
+        f"Screened {len(results)} of {len(universe)} (passed={n_passed}, "
+        f"failed={n_failed}, unscored={len(unscored)}) -> {out_path}"
+    )
+
+
+if __name__ == "__main__":
+    main()

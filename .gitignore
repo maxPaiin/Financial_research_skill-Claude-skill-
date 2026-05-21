@@ -11,6 +11,7 @@ __pycache__/
 
 /home/claude/work/
 cache/
+.cache/
 *.json
 *.pdf
 .env

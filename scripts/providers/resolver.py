@@ -108,10 +108,20 @@ def _log_conflict(points: list[DataPoint], diff_pct: float, severity: str):
                     [p.source for p in points])
 
 
-def flush_provenance():
-    """Write accumulated provenance log to disk."""
-    _PROVENANCE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _PROVENANCE_PATH.write_text(
-        json.dumps({"conflicts": _PROVENANCE_LOG}, indent=2),
+def flush_provenance(path: Path = _PROVENANCE_PATH) -> Path:
+    """Write accumulated provenance log to disk and clear the in-memory buffer.
+
+    Clearing is required so the next batch in the same Python process starts
+    from an empty log; without this, re-running the registry would
+    double-count conflicts from prior runs.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {"n_conflicts": len(_PROVENANCE_LOG), "conflicts": list(_PROVENANCE_LOG)},
+            indent=2,
+        ),
         encoding="utf-8",
     )
+    _PROVENANCE_LOG.clear()
+    return path

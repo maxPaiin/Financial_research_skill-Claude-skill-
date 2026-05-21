@@ -2,8 +2,14 @@
 Stage 3a: Composite ranking — one ranking, top 15, three display tiers.
 
 Ranking formula (canonical per §5.3):
-  composite_score = 0.50 * fundamental_quality_score   (0-100)
-                  + 0.50 * normalize(consensus_with_crowding_discount, to 0-100)
+  composite_score = 0.50 * fundamental_quality_score   (0-100, percentile rank)
+                  + 0.50 * crowding_signal_normalized  (0-100, percentile rank)
+
+Both halves of the composite use percentile rank within the passed universe
+so they're on a comparable scale. Earlier versions min-max'd the crowding
+signal, which exploded noise: `consensus_raw = log(1 + n_funds_holding)` has
+a narrow range (~0.7-2.5) and a single outlier dragged everyone else to the
+extremes.
 
 Tier grouping (display only, does not affect rationale generation):
   Tier A: rank 1-5
@@ -27,14 +33,17 @@ _TOP_N = 15
 _TIER_BREAKS = [5, 10, 15]   # A: ≤5, B: ≤10, C: ≤15
 
 
-def normalize_to_100(values: list[float]) -> list[float]:
-    """Min-max normalize a list of floats to [0, 100]."""
-    if not values:
-        return []
-    lo, hi = min(values), max(values)
-    if hi == lo:
-        return [50.0] * len(values)
-    return [round(100.0 * (v - lo) / (hi - lo), 2) for v in values]
+def percentile_rank(value: float, distribution: list[float]) -> float:
+    """Percentile rank of value in distribution: 0 (lowest) to 100 (highest).
+
+    Duplicated from compute_scores.py rather than imported so the two stage
+    scripts stay independently runnable.
+    """
+    if not distribution:
+        return 50.0
+    n_below = sum(1 for v in distribution if v < value)
+    n_equal = sum(1 for v in distribution if v == value)
+    return round(100.0 * (n_below + 0.5 * n_equal) / len(distribution), 2)
 
 
 def tier(rank: int) -> str:
@@ -84,6 +93,7 @@ def main():
             "debt_equity": s.get("debt_equity"),
             "is_adr": s.get("is_adr", False),
             "data_confidence": s.get("data_confidence"),
+            "data_asof": s.get("data_asof"),
             **{k: overlap_by_ticker.get(ticker, {}).get(k)
                for k in ("n_funds_holding", "held_by", "avg_weight", "max_weight",
                          "sum_of_weights", "weights_by_fund")},
@@ -96,11 +106,13 @@ def main():
         Path(args.out).write_text(json.dumps(out, indent=2))
         return
 
-    # Normalize crowding signal to 0-100
+    # Percentile-rank the crowding signal within the passed universe so it
+    # shares a scale with fundamental_quality_score (already a percentile).
     raw_signals = [c["crowding_signal_raw"] for c in candidates]
-    normalized_signals = normalize_to_100(raw_signals)
-    for c, ns in zip(candidates, normalized_signals):
-        c["crowding_signal_normalized"] = ns
+    for c in candidates:
+        c["crowding_signal_normalized"] = percentile_rank(
+            c["crowding_signal_raw"], raw_signals
+        )
 
     # Composite score
     for c in candidates:

@@ -79,6 +79,7 @@ def main():
             "industry": rec.get("industry"),
             "is_adr": rec.get("is_adr", False),
             "data_confidence": rec.get("overall_confidence"),
+            "data_asof": rec.get("data_asof"),
         }
 
     out = {"stocks": scores, "n_scored": len(scores)}

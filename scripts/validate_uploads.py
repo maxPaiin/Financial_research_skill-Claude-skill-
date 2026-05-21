@@ -31,10 +31,24 @@ HOLDINGS_KEYWORDS = [
     "持倉", "持股",
 ]
 
-# Date patterns common in fund factsheets
+# Date patterns common in fund factsheets. The v1 regex only matched
+# `dd/mm/yyyy`, `yyyy-mm-dd`, and `Month yyyy` — which missed `Q1 2025`,
+# `FY 2024`, `31 March 2025`, and `March 31, 2025` formats that real
+# HK-distributed factsheets commonly use.
+_MONTH = r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*"
+_DATE_PATTERNS = [
+    r"\d{1,2}[/-]\d{1,2}[/-]\d{2,4}",                                  # 31/03/2025
+    r"\d{4}[/-]\d{1,2}[/-]\d{1,2}",                                    # 2025-03-31
+    rf"{_MONTH}\.?\s+\d{{1,2}}(?:st|nd|rd|th)?,?\s+\d{{4}}",            # March 31, 2025
+    rf"\d{{1,2}}(?:st|nd|rd|th)?\s+{_MONTH}\.?\s+\d{{4}}",              # 31 March 2025
+    rf"{_MONTH}\s+\d{{4}}",                                            # March 2025
+    r"Q[1-4][\s/\-,]*\d{4}",                                           # Q1 2025, Q1-2025, Q1/2025
+    r"\d{4}[\s/\-,]*Q[1-4]",                                           # 2025 Q1
+    r"FY[\s\-]*\d{2,4}",                                               # FY24 / FY 2024
+    r"H[12][\s/\-]*\d{4}",                                             # H1 2025
+]
 _DATE_RE = re.compile(
-    r"\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{2}[/-]\d{2}|"
-    r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{4})\b",
+    r"\b(?:" + "|".join(_DATE_PATTERNS) + r")\b",
     re.IGNORECASE,
 )
 

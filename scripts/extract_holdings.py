@@ -40,16 +40,29 @@ _DROP_SUFFIXES = {
 }
 
 # US exchange suffixes to strip (normalize to clean ticker).
-_STRIP_SUFFIXES = {" US", ".O", ".N", ".A", ".OQ", ".OB", ".PK"}
+# `.A` is deliberately omitted: in modern equity data feeds it overwhelmingly
+# means share class A (BRK.A vs BRK.B are *different securities*), not the
+# legacy NYSE-American exchange flag. Stripping `.A` would conflate the two
+# Berkshire share classes — neither EDGAR nor yfinance would resolve `BRK`
+# to the correct row.
+_STRIP_SUFFIXES = {" US", ".O", ".N", ".OQ", ".OB", ".PK"}
 
 # ISIN prefix for US listings.
 _US_ISIN_PREFIXES = {"US"}
 
-# Non-equity keywords in name/type fields.
-_NON_EQUITY_KEYWORDS = {
-    "cash", "bond", "treasury", "derivative", "option", "future",
-    "etf", "index fund", "money market", "currency", "swap", "warrant",
-}
+# Non-equity classification — match as whole tokens, not substrings, so a
+# company name like "Cashmere Inc" or "ETFix Industries" doesn't get dropped.
+# Multi-word phrases use `\s+` so "money market" / "money  market" / "money\tmarket"
+# all match while still requiring the words to be adjacent.
+_NON_EQUITY_RE = re.compile(
+    r"\b(?:"
+    r"cash|bonds?|treasury|derivatives?|options?|futures?|"
+    r"etfs?|money\s+market|currenc(?:y|ies)|swaps?|warrants?|"
+    r"index\s+funds?|repo|repurchase\s+agreements?|"
+    r"commercial\s+papers?"
+    r")\b",
+    re.IGNORECASE,
+)
 
 # Minimum holdings to keep a fund (§3.1.2 D9).
 _MIN_HOLDINGS = 5
@@ -58,8 +71,14 @@ _MIN_AUM_WEIGHT = 0.20
 
 
 def is_non_equity(h: dict) -> bool:
-    name = (h.get("name") or "").lower()
-    return any(kw in name for kw in _NON_EQUITY_KEYWORDS)
+    name = h.get("name") or ""
+    return bool(_NON_EQUITY_RE.search(name))
+
+
+# Accept 1–5 letter base, optionally followed by a 1–2 letter share-class
+# suffix after a dot. Covers `AAPL`, `BRK.B`, `LGF.A`, `BAC.PB` (preferred B
+# series, which the v1 regex with `[A-Z]?` would have rejected).
+_TICKER_RE = re.compile(r"^[A-Z]{1,5}(?:\.[A-Z]{1,2})?$")
 
 
 def normalize_us_ticker(raw: str) -> str | None:
@@ -80,8 +99,7 @@ def normalize_us_ticker(raw: str) -> str | None:
             t = t[: -len(suffix)].strip()
             break
 
-    # Validate result looks like a ticker (letters, numbers, dot for BRK.B etc.)
-    if not t or not re.match(r"^[A-Z]{1,5}(\.[A-Z])?$", t):
+    if not t or not _TICKER_RE.match(t):
         return None
 
     return t

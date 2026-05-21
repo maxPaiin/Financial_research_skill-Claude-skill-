@@ -16,8 +16,6 @@ from typing import Optional
 DEFAULT_CONFIDENCE: dict[str, float] = {
     "edgar": 0.9,       # True point-in-time SEC filing
     "yfinance": 0.5,    # Degraded PIT; current values projected back
-    "pdf": 0.5,         # Single-snapshot mode default
-    "pdf_multi": 0.7,   # Multi-snapshot mode
 }
 
 
@@ -33,7 +31,14 @@ class DataPoint:
 
 @dataclass
 class FundamentalsRecord:
-    """Aggregated fundamentals for one ticker at a given asof date."""
+    """Aggregated fundamentals for one ticker at a given asof date.
+
+    `asof` is the *request* date (when the data was fetched).
+    `data_asof` is the *data* date — the latest filing period-end (EDGAR) or
+    the snapshot date (yfinance). The two diverge: a request on 2025-05-21
+    against EDGAR returns 10-K data whose period ended 2024-12-31. Reports
+    show `data_asof` to disclose actual fundamental-data freshness per stock.
+    """
     ticker: str
     asof: date
     roe_5y: list[Optional[DataPoint]] = field(default_factory=list)   # annual, oldest→newest
@@ -44,6 +49,7 @@ class FundamentalsRecord:
     market_cap: Optional[DataPoint] = None
     adv: Optional[DataPoint] = None                                   # avg daily volume USD
     is_adr: bool = False
+    data_asof: Optional[date] = None                                  # M4 Level 2
 
 
 class FundamentalsProvider(ABC):

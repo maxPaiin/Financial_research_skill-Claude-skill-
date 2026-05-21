@@ -13,9 +13,10 @@ Contract (canonical per §5.3):
 from __future__ import annotations
 
 import json
-import time
 import logging
-from datetime import date, datetime, timedelta
+import os
+import time
+from datetime import date
 from pathlib import Path
 from typing import Optional
 
@@ -36,7 +37,14 @@ _COMPANY_FACTS_URL = _EDGAR_BASE + "/api/xbrl/companyfacts/CIK{cik:010d}.json"
 _SUBMISSIONS_URL = _EDGAR_BASE + "/submissions/CIK{cik:010d}.json"
 _TICKER_MAP_URL = _EDGAR_BASE + "/files/company_tickers.json"
 
-_CACHE_DIR = Path("/home/claude/work/cache/edgar")
+# Default cache lives at <repo-root>/.cache/edgar so the provider can be
+# instantiated outside the Claude skill runtime (the old /home/claude/work/...
+# default failed on every other host). Override via the `cache_dir=` kwarg or
+# the EDGAR_CACHE_DIR env var when needed.
+_DEFAULT_CACHE_DIR = (
+    Path(__file__).resolve().parents[2] / ".cache" / "edgar"
+)
+_CACHE_DIR = Path(os.environ["EDGAR_CACHE_DIR"]) if os.environ.get("EDGAR_CACHE_DIR") else _DEFAULT_CACHE_DIR
 
 
 class EDGARProvider(FundamentalsProvider):
@@ -138,19 +146,23 @@ class EDGARProvider(FundamentalsProvider):
         return self._ticker_to_cik.get(ticker.upper())
 
     def _detect_filing_type(self, cik: int) -> str:
+        """Inspect the recent-filings list to decide between 10-K (domestic)
+        and 20-F (foreign filer / ADR). The `files` sibling array on the
+        submissions endpoint contains references to *other* JSON files, not
+        more filing dicts, so the previous attempt to splat it into this
+        loop was a no-op. For active filers, `recent.form` is sufficient;
+        for filers with no recent filings we conservatively default to 10-K
+        (and the upstream record will be sparse anyway, so quality screen
+        will catch it).
+        """
         data = self._get_json(
             _SUBMISSIONS_URL.format(cik=cik),
             f"submissions_{cik}",
         )
         if data is None:
             return "10-K"
-        form_types = set()
-        for filings_set in [data.get("filings", {}).get("recent", {}),
-                            *data.get("filings", {}).get("files", [])]:
-            if isinstance(filings_set, dict):
-                for ft in filings_set.get("form", []):
-                    form_types.add(ft)
-        if "20-F" in form_types:
+        recent_forms = data.get("filings", {}).get("recent", {}).get("form", []) or []
+        if "20-F" in recent_forms:
             return "20-F"
         return "10-K"
 
@@ -161,13 +173,27 @@ class EDGARProvider(FundamentalsProvider):
         )
 
     def _extract_annual_series(
-        self, facts: dict, concept: str, n_years: int, asof: date
+        self,
+        facts: dict,
+        concept: str,
+        n_years: int,
+        asof: date,
+        allowed_units: tuple[str, ...] = ("USD",),
     ) -> list[Optional[float]]:
-        """Extract up to n_years of annual values ending at or before asof."""
+        """Extract up to n_years of annual values ending at or before asof.
+
+        SEC XBRL exposes a value once per unit (USD, EUR, USD/shares, shares,
+        etc.). Iterating over every unit pulls in foreign-currency duplicates,
+        so we restrict to `allowed_units` (USD for dollar-denominated metrics;
+        callers pass `("shares",)` for share counts). SEC requires USD
+        reporting for both 10-K and 20-F filers, so USD-only is safe.
+        """
         us_gaap = facts.get("facts", {}).get("us-gaap", {})
         data = us_gaap.get(concept, {}).get("units", {})
         values = []
-        for unit_vals in data.values():
+        for unit, unit_vals in data.items():
+            if unit not in allowed_units:
+                continue
             for item in unit_vals:
                 if item.get("form") in ("10-K", "20-F") and item.get("end"):
                     try:
@@ -189,12 +215,18 @@ class EDGARProvider(FundamentalsProvider):
         return result[-n_years:]
 
     def _extract_latest(
-        self, facts: dict, concept: str, asof: date
+        self,
+        facts: dict,
+        concept: str,
+        asof: date,
+        allowed_units: tuple[str, ...] = ("USD",),
     ) -> Optional[float]:
         us_gaap = facts.get("facts", {}).get("us-gaap", {})
         data = us_gaap.get(concept, {}).get("units", {})
         best: Optional[tuple[date, float]] = None
-        for unit_vals in data.values():
+        for unit, unit_vals in data.items():
+            if unit not in allowed_units:
+                continue
             for item in unit_vals:
                 if item.get("form") in ("10-K", "20-F", "10-Q") and item.get("end"):
                     try:
@@ -254,13 +286,15 @@ class EDGARProvider(FundamentalsProvider):
                 asof=asof,
             )
 
-        # Industry from SIC mapping (best effort)
-        dei = facts.get("facts", {}).get("dei", {})
-        sic_desc = None
-        for key in ("EntityPublicFloat", "EntityCommonStockSharesOutstanding"):
-            pass  # SIC is in submissions, not facts
-        # Industry resolved later via yfinance fallback
+        # Industry: SIC lives in the submissions endpoint, not company-facts,
+        # so EDGAR provides no industry info at this stage. The registry
+        # back-fills it from yfinance when available.
         industry = normalize_industry(None)
+
+        # data_asof: most recent filing period-end across the company's facts.
+        # This is the actual "as of" date of the data — distinct from `asof`,
+        # which is the request date. M4 Level 2.
+        data_asof = self._latest_filing_end_date(facts, asof)
 
         record = FundamentalsRecord(
             ticker=ticker,
@@ -271,5 +305,30 @@ class EDGARProvider(FundamentalsProvider):
             net_income_5y=ni_5y,
             industry=industry,
             is_adr=is_adr,
+            data_asof=data_asof,
         )
         return record
+
+    def _latest_filing_end_date(
+        self, facts: dict, asof: date,
+    ) -> Optional[date]:
+        """Scan us-gaap facts for the latest 10-K/20-F period-end on or before asof."""
+        us_gaap = facts.get("facts", {}).get("us-gaap", {})
+        latest: Optional[date] = None
+        for concept_data in us_gaap.values():
+            for unit, unit_vals in concept_data.get("units", {}).items():
+                if unit != "USD":
+                    continue
+                for item in unit_vals:
+                    if item.get("form") not in ("10-K", "20-F"):
+                        continue
+                    end_raw = item.get("end")
+                    if not end_raw:
+                        continue
+                    try:
+                        end = date.fromisoformat(end_raw)
+                    except ValueError:
+                        continue
+                    if end <= asof and (latest is None or end > latest):
+                        latest = end
+        return latest
