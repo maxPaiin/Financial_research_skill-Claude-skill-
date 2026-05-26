@@ -5,10 +5,12 @@
 On May 26, 2026, a comprehensive test of this Claude skill was performed. The input datasets and generated output reports are archived in the `Analysis inputs and results/5-26-2026_Test` directory.
 
 **Test Configuration:**
+
 - **Scope:** 7 funds were randomly selected from the Standard Chartered Hong Kong fund universe, filtered by a "USD x Technology" constraint.
-- **Data Source:** Fund documents are in Traditional Chinese, located in `Analysis inputs and results/5-26-2026_Test/Imported fund documents`.
+- **Data Source:** Fund documents(Traditional Chinese) and report -> https://drive.google.com/drive/folders/1brDazbsFx1oP-Xmek4rQ4DNj-lK0lott?usp=drive_link.
 
 **Identified Issues & Areas for Improvement:**
+
 1. **Validation:** The initial reports generated have not yet undergone professional audit or verification by financial experts.
 2. **Token Efficiency:** Significant resource consumption was observed. This test depleted over 90% of the Claude Pro (Personal) Opus 4.7 Adaptive session quota (3-hour window) and incurred an additional $0.24 in API costs. Optimizing prompt structure and processing logic to reduce token overhead is a priority.
 3. **Methodological Bias:** The current sampling methodology may lead to a severe "Echo Chamber Effect." Future iterations should adopt stratified sampling to ensure broader analytical diversity.
@@ -63,25 +65,27 @@ The skill is gated at three levels. If any gate fails, the pipeline halts and th
 
 Every uploaded PDF is checked before any LLM parsing begins:
 
-| Check | Requirement |
-|---|---|
-| File count | **7–11** `.pdf` files in the upload directory (inclusive). |
-| Parseable | Each PDF must open with `pypdf` and contain at least one page. |
-| Extractable text | The first 10 pages combined must yield non-empty text. Image-only scans fail here. |
-| Holdings keyword | Each PDF must contain at least one of: `holdings`, `portfolio`, `top holdings`, `portfolio composition`. Bilingual HK factsheets often include Chinese equivalents as well — the validator accepts those too; see `validate_uploads.py` for the canonical list. |
-| Reporting date | Each PDF must contain a recognizable date. Supported formats include `2025-03-31`, `31/03/2025`, `Q1 2025`, `FY 2024`, `H1 2025`, `March 31, 2025`, `31 March 2025`, `March 2025`. |
+
+| Check            | Requirement                                                                                                                                                                                                                                                     |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| File count       | **7–11** `.pdf` files in the upload directory (inclusive).                                                                                                                                                                                                     |
+| Parseable        | Each PDF must open with`pypdf` and contain at least one page.                                                                                                                                                                                                   |
+| Extractable text | The first 10 pages combined must yield non-empty text. Image-only scans fail here.                                                                                                                                                                              |
+| Holdings keyword | Each PDF must contain at least one of:`holdings`, `portfolio`, `top holdings`, `portfolio composition`. Bilingual HK factsheets often include Chinese equivalents as well — the validator accepts those too; see `validate_uploads.py` for the canonical list. |
+| Reporting date   | Each PDF must contain a recognizable date. Supported formats include`2025-03-31`, `31/03/2025`, `Q1 2025`, `FY 2024`, `H1 2025`, `March 31, 2025`, `31 March 2025`, `March 2025`.                                                                               |
 
 ### Level 2 — Per-fund content (Stage 1a, LLM extraction)
 
 Claude reads each PDF and writes one record per fund into `holdings.json`. For that to succeed, each PDF must surface the following:
 
-| Field | Required? | Why it matters |
-|---|---|---|
-| Fund name | yes | Identifies the fund in every downstream report. |
-| Issuer | recommended | Shown in Layer 1 / 2 summaries. |
-| Reporting date (`asof`) | yes | Per-fund snapshot date; appears in Layer 1 and PIT tracking. |
-| Total AUM | recommended | Activates the "US holdings ≥ 20% of AUM" viability check; without AUM the check is skipped. |
-| Holdings table | yes | The core data feeding every downstream stage. |
+
+| Field                   | Required?   | Why it matters                                                                               |
+| ----------------------- | ----------- | -------------------------------------------------------------------------------------------- |
+| Fund name               | yes         | Identifies the fund in every downstream report.                                              |
+| Issuer                  | recommended | Shown in Layer 1 / 2 summaries.                                                              |
+| Reporting date (`asof`) | yes         | Per-fund snapshot date; appears in Layer 1 and PIT tracking.                                 |
+| Total AUM               | recommended | Activates the "US holdings ≥ 20% of AUM" viability check; without AUM the check is skipped. |
+| Holdings table          | yes         | The core data feeding every downstream stage.                                                |
 
 Each row of the **holdings table** must include:
 
@@ -94,10 +98,11 @@ Each row of the **holdings table** must include:
 
 After Stage 1a, each fund's holdings are filtered to US-listed equities (ADRs included; non-US suffixes such as `.HK`, `.T`, `.L`, `.SS` are dropped; cash, bonds, ETFs, warrants, money-market instruments are dropped via a word-boundary keyword filter). Each fund must then satisfy:
 
-| Check | Requirement |
-|---|---|
-| US equity count | ≥ **5** US-listed holdings remaining after filtering. |
-| US equity weight | If AUM was extracted, the kept holdings must sum to ≥ **20%** of AUM. |
+
+| Check            | Requirement                                                           |
+| ---------------- | --------------------------------------------------------------------- |
+| US equity count  | ≥**5** US-listed holdings remaining after filtering.                 |
+| US equity weight | If AUM was extracted, the kept holdings must sum to ≥**20%** of AUM. |
 
 Funds that fail are rejected, but the run continues — **as long as at least 7 funds survive**. If post-rejection count drops below 7, the pipeline halts with a message naming the failed PDFs.
 
@@ -122,10 +127,11 @@ Funds that fail are rejected, but the run continues — **as long as at least 7 
 
 ## When the skill triggers
 
-| Trigger |
-|---|
-| User uploads 7–11 fund prospectus PDFs and asks for analysis. |
-| Phrases: *fund analysis, holdings breakdown, individual-stock scoring, multi-fund comparison, fund prospectus analysis*, "analyze these fund PDFs". |
+
+| Trigger                                                                                                                                            |
+| -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| User uploads 7–11 fund prospectus PDFs and asks for analysis.                                                                                     |
+| Phrases:*fund analysis, holdings breakdown, individual-stock scoring, multi-fund comparison, fund prospectus analysis*, "analyze these fund PDFs". |
 
 If fewer than 7 PDFs are supplied, validation stops the pipeline and asks the user to resubmit.
 
@@ -133,11 +139,12 @@ If fewer than 7 PDFs are supplied, validation stops the pipeline and asks the us
 
 ## Pipeline overview
 
-| Layer | Stages | Key scripts |
-|---|---|---|
-| Layer 1 — Extraction | 0–1e | `validate_uploads.py`, `extract_holdings.py`, `layer1_report.py` |
-| Layer 2 — Overlap & Screen | 2a–2g | `overlap_analysis.py`, `providers/registry.py`, `quality_screen.py`, `compute_scores.py`, `crowding_signal.py`, `layer2_report.py` |
-| Layer 3 — Ranking & Advice | 3a–3d + PDF | `build_rankings.py`, `layer3_report.py`, `build_report.py` |
+
+| Layer                       | Stages       | Key scripts                                                                                                                        |
+| --------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Layer 1 — Extraction       | 0–1e        | `validate_uploads.py`, `extract_holdings.py`, `layer1_report.py`                                                                   |
+| Layer 2 — Overlap & Screen | 2a–2g       | `overlap_analysis.py`, `providers/registry.py`, `quality_screen.py`, `compute_scores.py`, `crowding_signal.py`, `layer2_report.py` |
+| Layer 3 — Ranking & Advice | 3a–3d + PDF | `build_rankings.py`, `layer3_report.py`, `build_report.py`                                                                         |
 
 Full orchestration logic and error recovery rules: [`SKILL.md`](./SKILL.md).
 
@@ -267,25 +274,27 @@ Offline, no network calls, no pytest dependency.
 
 Three downloadable `.md` files plus a final English-only PDF:
 
-| File | Content |
-|---|---|
-| `layer1_extraction.md` | Per-fund extraction summary, universe size, out-of-scope tickers |
-| `layer2_screening.md` | Overlap matrix, quality screen results (pass + fail disclosed), data quality |
-| `layer3_ranked_advice.md` | Honest framing, top-15 watchlist with rationale cards, methodology |
-| `financial_research_report.pdf` | All of the above, assembled into 18–26 page English PDF |
+
+| File                            | Content                                                                      |
+| ------------------------------- | ---------------------------------------------------------------------------- |
+| `layer1_extraction.md`          | Per-fund extraction summary, universe size, out-of-scope tickers             |
+| `layer2_screening.md`           | Overlap matrix, quality screen results (pass + fail disclosed), data quality |
+| `layer3_ranked_advice.md`       | Honest framing, top-15 watchlist with rationale cards, methodology           |
+| `financial_research_report.pdf` | All of the above, assembled into 18–26 page English PDF                     |
 
 ---
 
 ## Key design decisions (v0.2 vs v1)
 
-| Decision | v1 | v0.2 |
-|---|---|---|
-| Scope | Multi-market, claimed alpha | US equities, honestly scoped to HK channel |
-| Strategies | 3 parallel (Growth / Conservative / Risk-avoidance) | 1 ranking, 3 display tiers |
-| Backtest | Monthly-rebalanced with CAGR/Sharpe/MDD | Removed (misleading given inputs) |
-| Output language | Bilingual (English + Chinese) | English-only |
-| Data source | yfinance + FRED only | EDGAR (PIT, conf 0.9) + yfinance fallback (conf 0.5) |
-| Quality metric | Continuous score (industry + growth + quality_value) | Binary screen + single ROE percentile rank |
+
+| Decision        | v1                                                   | v0.2                                                 |
+| --------------- | ---------------------------------------------------- | ---------------------------------------------------- |
+| Scope           | Multi-market, claimed alpha                          | US equities, honestly scoped to HK channel           |
+| Strategies      | 3 parallel (Growth / Conservative / Risk-avoidance)  | 1 ranking, 3 display tiers                           |
+| Backtest        | Monthly-rebalanced with CAGR/Sharpe/MDD              | Removed (misleading given inputs)                    |
+| Output language | Bilingual (English + Chinese)                        | English-only                                         |
+| Data source     | yfinance + FRED only                                 | EDGAR (PIT, conf 0.9) + yfinance fallback (conf 0.5) |
+| Quality metric  | Continuous score (industry + growth + quality_value) | Binary screen + single ROE percentile rank           |
 
 ---
 
