@@ -1,15 +1,25 @@
 """
-Stage 0: Validate uploaded fund prospectus PDFs.
+Stage 0: Validate uploaded fund prospectus PDFs + SEC EDGAR email gate (B1).
 
 Checks:
   1. Count of .pdf files in [7, 11] inclusive.
   2. Each PDF opens with pypdf and yields >= 1 page of extractable text.
   3. Each PDF contains at least one holdings keyword.
   4. Each PDF contains a date pattern likely to be the asof date.
+  5. A usable SEC EDGAR contact email is supplied (B1). SEC requires a contact
+     email in the EDGAR request header; omitting it causes 403 Forbidden, so the
+     skill cannot fetch fundamentals without one. The email is placed ONLY into
+     the SEC request header and is not stored or transmitted anywhere else.
 
 Exits with code 0 on success, non-zero with an educational message on failure.
+
+Usage:
+  validate_uploads.py <upload_dir> [--email you@example.com]
+The email may also be supplied via the EDGAR_CONTACT_EMAIL environment variable.
 """
 
+import argparse
+import os
 import sys
 import re
 import json
@@ -65,6 +75,34 @@ _GUIDANCE = (
 )
 
 
+# --- B1: SEC EDGAR contact-email gate ---------------------------------------
+# Deliberately lenient format check — we are not verifying deliverability, only
+# that the string is a plausible single email to place in the SEC UA header.
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+EMAIL_GATE_MESSAGE = (
+    "HALT — a SEC EDGAR contact email is required before this skill can run.\n"
+    "\n"
+    "Why: SEC requires every EDGAR request to declare a User-Agent that includes "
+    "a contact email. Requests without one are answered with HTTP 403 Forbidden, "
+    "so the skill cannot fetch the US fundamentals it ranks on.\n"
+    "\n"
+    "Privacy: the email is placed ONLY into the SEC request header (SEC's stated "
+    "use is to contact the script operator if it causes problems). It is not "
+    "stored, logged to the report, or transmitted anywhere else.\n"
+    "\n"
+    "Provide a valid email via --email you@example.com (or the EDGAR_CONTACT_EMAIL "
+    "environment variable) and re-run."
+)
+
+
+def valid_email(email: str | None) -> bool:
+    """Basic format validation for the SEC contact email (B1)."""
+    if not email:
+        return False
+    return bool(_EMAIL_RE.match(email.strip()))
+
+
 def _looks_like_fund_pdf(text: str) -> bool:
     lower = text.lower()
     return any(kw in lower for kw in HOLDINGS_KEYWORDS)
@@ -74,10 +112,15 @@ def _has_date_pattern(text: str) -> bool:
     return bool(_DATE_RE.search(text))
 
 
-def validate(upload_dir: Path) -> dict:
+def validate(upload_dir: Path, email: str | None = None) -> dict:
     pdfs = sorted(upload_dir.glob("*.pdf"))
     n = len(pdfs)
     errors = []
+
+    # B1: email gate — checked alongside the PDF requirements.
+    email_ok = valid_email(email)
+    if not email_ok:
+        errors.append(EMAIL_GATE_MESSAGE)
 
     if n < MIN_FILES or n > MAX_FILES:
         errors.append(
@@ -129,6 +172,7 @@ def validate(upload_dir: Path) -> dict:
     return {
         "ok": len(errors) == 0,
         "n_files": n,
+        "email_ok": email_ok,
         "errors": errors,
         "files": file_status,
         "guidance": _GUIDANCE,
@@ -136,16 +180,21 @@ def validate(upload_dir: Path) -> dict:
 
 
 def main():
-    if len(sys.argv) != 2:
-        print(f"Usage: {sys.argv[0]} <upload_dir>", file=sys.stderr)
-        sys.exit(2)
+    ap = argparse.ArgumentParser(description="Stage 0 validation + EDGAR email gate")
+    ap.add_argument("upload_dir", help="Directory containing the uploaded fund PDFs")
+    ap.add_argument(
+        "--email",
+        default=os.environ.get("EDGAR_CONTACT_EMAIL"),
+        help="SEC EDGAR contact email (B1). Falls back to EDGAR_CONTACT_EMAIL.",
+    )
+    args = ap.parse_args()
 
-    upload_dir = Path(sys.argv[1])
+    upload_dir = Path(args.upload_dir)
     if not upload_dir.is_dir():
         print(f"ERROR: {upload_dir} is not a directory", file=sys.stderr)
         sys.exit(2)
 
-    result = validate(upload_dir)
+    result = validate(upload_dir, email=args.email)
     print(json.dumps(result, indent=2, ensure_ascii=False))
     sys.exit(0 if result["ok"] else 1)
 

@@ -80,6 +80,12 @@ def main():
             "is_adr": rec.get("is_adr", False),
             "data_confidence": rec.get("overall_confidence"),
             "data_asof": rec.get("data_asof"),
+            # A1 (v0.3): carry liquidity/size signals through to ranking & A2.
+            # yfinance fetches both, fetch_fundamentals serialises them, but
+            # v0.2 dropped them here — reviving them so crowding_signal.py
+            # (days-to-liquidate) and the reports can use them.
+            "market_cap": (rec.get("market_cap") or {}).get("value"),
+            "adv": (rec.get("adv") or {}).get("value"),
         }
 
     out = {"stocks": scores, "n_scored": len(scores)}

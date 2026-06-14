@@ -12,12 +12,29 @@ All formulas, weights, and thresholds quoted here reference their canonical sour
 Given 7–11 HKMA-approved global fund prospectus PDFs distributed through Hong Kong private
 banking channels (Standard Chartered HK, Citi HK, and similar), the skill:
 
-1. Extracts US-listed equity holdings from each fund prospectus.
+1. Extracts US-listed equity holdings from each fund prospectus (v0.3: pdfplumber table
+   recovery + LLM normalisation; a coarse fund `style` is inferred per fund).
 2. Screens stocks for fundamental quality (PASS/FAIL only — see `references/quality_screen.md`).
-3. Ranks the passed universe by a composite signal combining fundamental quality and
-   consensus-with-crowding-discount (see `references/crowding_signal.md`).
+3. Ranks the passed universe by a composite signal (fixed 50/50) combining **low-anchor
+   confidence-shrunk** fundamental quality and a **style-diversity-weighted,
+   exit-liquidity-aware** consensus-with-crowding-discount (see `references/crowding_signal.md`).
 4. Produces the top 15 ranked stocks with rationale cards and an honest framing section.
-5. Outputs three layered markdown files and a final English-only PDF.
+5. Adds central-bank-anchored macro and per-stock scenario appendices, and an over-consensus
+   / fund-style remediation appendix (v0.3 — see `references/macro_appendix.md`).
+6. Outputs the layered markdown checkpoints and a final English-only PDF; checkpoints are
+   copied to the user-visible outputs directory.
+
+## v0.3 design premises (locked)
+
+- **Conservative-by-design.** A defensible starting point biased toward what can be verified.
+- **Uncertainty is a quality defect, not a neutral state.** Low-confidence quality is pulled
+  toward a low (but non-zero) anchor, not shrunk to the median — see `build_rankings.py` A4.
+- **Consensus is not alpha.** Crowding is rebuilt to carry exit-liquidity risk (days-to-
+  liquidate) and consensus is weighted by holder style-diversity, not raw count.
+- **Primary sources outrank secondary.** Macro facts are central-bank/official, gated by a
+  hard ≥2-primary-tier corroboration rule with per-sentence attribution.
+- **Honesty about method is part of the product.** Every selection bias, data fallback, and
+  source-filtering rule is disclosed in the report.
 
 ## What the skill is NOT
 

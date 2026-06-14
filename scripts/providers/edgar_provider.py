@@ -2,7 +2,15 @@
 EDGAR provider — true point-in-time US fundamentals via SEC EDGAR.
 
 Contract (canonical per §5.3):
-- User-Agent: "FinancialResearchSkill-v0.2 anthropic-claude-skill"
+- User-Agent: "FinancialResearchSkill-v0.3 <contact-email>" (B1, v0.3)
+    SEC requires every EDGAR request to declare a User-Agent that identifies the
+    application AND provides a contact email; requests lacking a contact email
+    (or using a generic bot-like UA) are answered with 403 Forbidden. The email
+    is supplied by the user and gated at Stage 0 (validate_uploads.py); it is
+    injected here via the `contact_email=` kwarg or the EDGAR_CONTACT_EMAIL env
+    var — never hardcoded. The email is placed ONLY into this request header
+    (SEC's stated use: to contact the operator if the script causes problems);
+    it is not stored and not transmitted anywhere else.
 - Throttle: minimum 100 ms between requests (≤ 10 req/s, SEC fair-use)
 - Daily budget per session: 600 requests max
 - Cache: permanent by (ticker, filing_id) — filings are immutable
@@ -28,7 +36,8 @@ from .industry_map import normalize as normalize_industry
 log = logging.getLogger(__name__)
 
 # Canonical constants — do not duplicate elsewhere.
-_USER_AGENT = "FinancialResearchSkill-v0.2 anthropic-claude-skill"
+# B1 (v0.3): the UA is built per-instance and MUST carry a contact email.
+_USER_AGENT_APP = "FinancialResearchSkill-v0.3"
 _MIN_INTERVAL_S = 0.10          # 100 ms between requests
 _DAILY_BUDGET = 600             # max requests per session
 _RETRY_DELAYS = [1.0, 2.0, 4.0]
@@ -47,17 +56,36 @@ _DEFAULT_CACHE_DIR = (
 _CACHE_DIR = Path(os.environ["EDGAR_CACHE_DIR"]) if os.environ.get("EDGAR_CACHE_DIR") else _DEFAULT_CACHE_DIR
 
 
+def _resolve_contact_email(contact_email: Optional[str]) -> Optional[str]:
+    """Resolve the SEC contact email: explicit kwarg > EDGAR_CONTACT_EMAIL env."""
+    email = (contact_email or os.environ.get("EDGAR_CONTACT_EMAIL") or "").strip()
+    return email or None
+
+
 class EDGARProvider(FundamentalsProvider):
     """Fetches fundamentals from SEC EDGAR with caching and throttling."""
 
-    def __init__(self, cache_dir: Path = _CACHE_DIR):
+    def __init__(self, cache_dir: Path = _CACHE_DIR, contact_email: Optional[str] = None):
         self._cache = cache_dir
         self._cache.mkdir(parents=True, exist_ok=True)
         self._ticker_to_cik: dict[str, int] = {}
         self._last_request_ts: float = 0.0
         self._request_count: int = 0
+        self._contact_email = _resolve_contact_email(contact_email)
+        # SEC returns 403 without a contact email. We do not hard-fail in the
+        # constructor (the Stage 0 gate is the user-facing guard), but we warn
+        # loudly so a misconfigured run is diagnosable.
+        if not self._contact_email:
+            log.warning(
+                "EDGAR contact email missing — SEC will likely return 403. "
+                "Pass contact_email= or set EDGAR_CONTACT_EMAIL."
+            )
+        self._user_agent = (
+            f"{_USER_AGENT_APP} {self._contact_email}"
+            if self._contact_email else _USER_AGENT_APP
+        )
         self._session = requests.Session()
-        self._session.headers.update({"User-Agent": _USER_AGENT})
+        self._session.headers.update({"User-Agent": self._user_agent})
 
     @property
     def name(self) -> str:

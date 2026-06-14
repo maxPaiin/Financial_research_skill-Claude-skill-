@@ -18,7 +18,11 @@ _METHODOLOGY = """## Methodology disclosure
 - **Universe**: HKMA-approved global funds distributed through HK private banking channels
 - **Filter**: US-listed equities only (ADRs included; non-US primary listings excluded)
 - **Quality screen**: ROE persistence (>= 3 positive years in 5), debt sanity (D/E < 5.0), earnings continuity (no 3 consecutive negative NI years), minimum data availability (>= 2 of 3 key metrics at confidence >= 0.4)
-- **Ranking signal**: 50% fundamental quality (ROE 5y avg percentile rank) + 50% consensus-with-crowding-discount
+- **Ranking signal**: 50% fundamental quality + 50% consensus-with-crowding-discount (weights fixed at 50/50)
+- **Confidence-shrinkage on quality (v0.3)**: the quality half is low-anchor shrunk — Q'' = c·Q + (1 − c)·10, where c is the stock's data confidence. Quality built from low-confidence (yfinance) data is pulled toward a low-but-non-zero anchor (10), so unverifiable numbers cannot float a stock to mid-pack. Applied to the quality half only (its confidence is a real per-source difference); NOT applied to the consensus half (whose "confidence" is staleness, roughly uniform within a run). Q'' is deliberately NOT re-percentiled, so the penalty moves a stock's absolute position. Uncertainty is treated as a quality defect, not a neutral state.
+- **Crowding = exit-crowdedness (v0.3)**: the crowding discount folds in days-to-liquidate = (Σ fund_AUM × weight) / average-daily-traded-value, assuming simultaneous exit by all holders. Each crowding figure is labelled liquidity-inclusive (AUM + ADV available) or NAV-only (fell back to the pure-weight discount when AUM/ADV were missing).
+- **Consensus = style-diversity-weighted (v0.3)**: consensus is weighted by the style diversity of the holders, so cross-style agreement counts for more than same-mandate funds buying the same names. **Stratified sampling was abandoned** for two reasons: (1) the sample (7–11 funds) is too small to stratify — style cells would hold 1–2 funds; (2) full stratified analysis exceeds this tool's processing/token budget. The replacement is diversity-weighting plus a run-level homogeneity warning (see Appendix 3).
+- **Macro/expectations source policy (v0.3)**: macro facts are primary-first — central-bank/official sources fetched by directed URL (Fed, ECB, BoJ + official statistics); open web search is reserved for the secondary/news layer. Every factual sentence in the appendices must be corroborated by >= 2 independent primary-tier sources (a HARD inclusion gate, not a soft discount) and carries per-sentence attribution. A claim traceable only to a low-trust source cannot obtain primary-tier corroboration and is therefore never written. This curated source policy is disclosed because filtering sources is itself a stance.
 - **Provider routing**: EDGAR (confidence 0.9) → yfinance fallback (confidence 0.5)
 - **Sample size**: {n_funds} HKMA-approved funds — this is a small sample; results are NOT statistically significant
 
@@ -27,14 +31,21 @@ _METHODOLOGY = """## Methodology disclosure
 - Sample size of {n_funds} funds is small; rankings are not statistically significant
 - Top-N disclosure in fund prospectuses introduces 30–60 day staleness
 - HK distribution-channel bias is not corrected; rankings reflect that bias, not the global equity market
+- Consensus among same-style funds is largely tautological; see the homogeneity warning in Appendix 3
 - This is a filter and ranking tool, not an alpha-generation or portfolio construction tool
 """
 
+# v0.3 (D3): the HK-distribution-channel bias is stated ONCE in the opening
+# framing section, not repeated on every card. High-crowding cards still carry
+# their own per-card warning (kept), and the crowding figure is labelled
+# liquidity-inclusive / NAV-only (A2 disclosure).
 _CARD_TEMPLATE = """### #{rank}   {ticker}   {name}
 
 **Held by:** {n_funds_holding} of {total_funds} funds ({pct:.0%}){crowding_flag}
 
 **Avg weight where held:** {avg_weight:.2%}  |  **Max weight:** {max_weight:.2%}  |  **asof:** {asof}
+
+**Crowding:** {crowding_label}{dtl_note}
 
 **Quality screen:** PASS  |  **Confidence:** {confidence}
 - ROE 5y avg: {roe_avg}
@@ -45,8 +56,6 @@ _CARD_TEMPLATE = """### #{rank}   {ticker}   {name}
 
 **Rank rationale:**
 {rationale}
-
-**Bias note:** This rank reflects HK distribution channel preference. It is not a market-wide alpha signal.
 """
 
 _CROWDING_FLAG = (
@@ -86,6 +95,10 @@ def build_layer3_md(
             crowding_flag = _CROWDING_FLAG if s.get("is_high_crowding") else ""
             adr_note = "\n\n> ADR — fundamentals sourced from 20-F or yfinance fallback." \
                 if s.get("is_adr") else ""
+            crowding_label = s.get("crowding_label") or "NAV-only"
+            dtl = s.get("days_to_liquidate")
+            dtl_note = f"  |  Days-to-liquidate (all-holders): {dtl:.1f}" \
+                if isinstance(dtl, (int, float)) else ""
             card = _CARD_TEMPLATE.format(
                 rank=s["rank"],
                 ticker=tkr,
@@ -97,6 +110,8 @@ def build_layer3_md(
                 avg_weight=s.get("avg_weight", 0),
                 max_weight=s.get("max_weight", 0),
                 asof=s.get("data_asof") or "n/a",
+                crowding_label=crowding_label,
+                dtl_note=dtl_note,
                 confidence=fmt_metric(s.get("data_confidence")),
                 roe_avg=fmt_metric(s.get("roe_5y_avg"), ".1%") if s.get("roe_5y_avg") else "n/a",
                 ev_ebitda=fmt_metric(s.get("ev_ebitda")),

@@ -34,7 +34,13 @@ DataPoint:
 
 ## EDGAR contract (canonical in `providers/edgar_provider.py`)
 
-- User-Agent: `"FinancialResearchSkill-v0.2 anthropic-claude-skill"` — hardcoded, not env var.
+- User-Agent: `"FinancialResearchSkill-v0.3 <contact-email>"` (B1, v0.3). SEC requires a
+  contact email in the request header; without it EDGAR returns **403 Forbidden**. The email
+  is user-supplied, gated at Stage 0 (`validate_uploads.py --email`), and injected via the
+  `contact_email=` kwarg on `ProviderRegistry` / `EDGARProvider` or the `EDGAR_CONTACT_EMAIL`
+  env var — **never hardcoded**. It is placed ONLY into this header (SEC's stated use:
+  contacting the operator if the script misbehaves); it is not stored or transmitted
+  elsewhere.
 - Throttle: minimum 100 ms between requests (≤ 10 req/s, per SEC fair-use policy).
 - Daily budget: 600 requests per session.
 - Cache: permanent by `(ticker, filing_id)` — filings are immutable.

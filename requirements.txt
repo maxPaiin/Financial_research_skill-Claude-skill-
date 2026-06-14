@@ -1,7 +1,8 @@
-# Python dependencies for the financial-research skill v0.2
+# Python dependencies for the financial-research skill v0.3
 # Install: pip install -r requirements.txt --break-system-packages
 
-pypdf>=4.0          # Stage 0 / Stage 1a PDF parsing
+pypdf>=4.0          # Stage 0 validation / flat-text fallback
+pdfplumber>=0.11    # Stage 1a hybrid table extraction (D1) — recovers holdings-table grid
 yfinance>=0.2.40    # Stage 2b fallback (yfinanceProvider only — see providers/yfinance_provider.py)
 requests>=2.31      # Stage 2b EDGAR provider HTTP calls
 pandas>=2.0

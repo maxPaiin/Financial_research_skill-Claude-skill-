@@ -8,13 +8,14 @@ actual run numbers and following this template.
 
 ---
 
-## What to include (mandatory, per §7.3.2)
+## What to include (mandatory)
 
-The framing paragraph must explicitly state all four biases from §1.4 of Iteration_0.2v.md,
-with the specific numbers from this run:
+The framing paragraph must explicitly state all four biases below, with the specific
+numbers from this run, **plus the three v0.3 disclosures**:
 
 1. **HK distribution-channel bias** — funds are a curated subset chosen for sellability to
-   HK retail/private clients, clustered around well-known large-caps.
+   HK retail/private clients, clustered around well-known large-caps. **State this ONCE
+   here** (v0.3 D3 — it is no longer repeated on every ranked card).
 
 2. **Top-N disclosure lag** — fund prospectuses typically disclose only top-10 to top-20
    holdings; disclosure dates run 30–60 days behind. The analysis reflects a partial, stale
@@ -25,6 +26,23 @@ with the specific numbers from this run:
 
 4. **Survivorship in the fund universe** — the analyzed funds are operating funds. Failed
    funds and their losing picks are not in the input.
+
+**v0.3 additions (also mandatory in the framing section):**
+
+5. **Style-homogeneity warning** — if `crowding_signals.json` reports
+   `homogeneity.is_homogeneous = true`, state prominently that the input is dominated by a
+   single fund style, so consensus this run is largely tautological (same-mandate funds
+   buying the same names) and carries little independent information. Point to Appendix 3.
+
+6. **Stratification-abandoned note** — state that stratified sampling was abandoned for two
+   reasons: the sample (7–11 funds) is too small to stratify meaningfully (style cells would
+   hold 1–2 funds), and full stratified analysis exceeds the tool's processing/token budget.
+   The replacement is style-diversity weighting + the homogeneity warning.
+
+7. **Source-selection-method disclosure** — state that macro/expectations facts use a
+   primary-first, cross-source corroboration HARD gate (≥2 primary-tier sources per fact,
+   per-sentence attribution), which structurally excludes uncorroborated low-trust material.
+   A curated source policy is itself a stance and must be transparent.
 
 ## What to prohibit (no exceptions)
 
@@ -65,5 +83,7 @@ See the Disclaimer for the full legal statement.
 
 - Layer 3 markdown: at the top, before any ranked content.
 - PDF: as Section 3 (after cover and front disclaimer), before executive summary.
-- Per-stock cards: each card ends with "Bias note: This rank reflects HK distribution
-  channel preference. It is not a market-wide alpha signal."
+- **Per-stock cards do NOT repeat the bias note (v0.3 D3).** The HK-bias statement lives
+  once, here in the framing section. The only per-card warnings retained are the
+  high-crowding warning (on high-crowding stocks) and the ADR note. Optionally, a single
+  one-line per-tier footer is allowed.

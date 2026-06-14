@@ -103,7 +103,38 @@ def build_layer2_md(
         lines += [f"- Mean: {sum(sig_vals)/len(sig_vals):.3f}"]
         high_crowd = sum(1 for s in signals.values() if s.get("is_high_crowding"))
         lines += [f"- High-crowding stocks (discount >= 30%): {high_crowd}"]
+        # A2: liquidity-inclusive vs NAV-only coverage (v0.3).
+        liq_inc = sum(1 for s in signals.values()
+                      if s.get("crowding_label") == "liquidity-inclusive")
+        nav_only = sum(1 for s in signals.values()
+                       if s.get("crowding_label") == "NAV-only")
+        lines += [f"- Crowding figures: {liq_inc} liquidity-inclusive (days-to-liquidate "
+                  f"applied), {nav_only} NAV-only (AUM/ADV missing — fell back to "
+                  "pure-weight discount)"]
         lines += [""]
+
+    # A3: input-set style homogeneity state (v0.3).
+    homo = crowding.get("homogeneity", {})
+    lines += ["## Input-set style homogeneity (consensus informativeness)", ""]
+    if not homo.get("labelled"):
+        lines += ["- Fund styles were not labelled this run; style-diversity "
+                  "weighting was not applied and consensus is reported unweighted."]
+    else:
+        dist = homo.get("style_distribution", {})
+        dist_str = ", ".join(f"{k}: {v}" for k, v in dist.items()) or "n/a"
+        lines += [f"- Style distribution of input funds: {dist_str}"]
+        lines += [f"- Dominant style: {homo.get('dominant_style')} "
+                  f"({homo.get('dominant_share', 0):.0%} of labelled funds)"]
+        if homo.get("is_homogeneous"):
+            lines += ["- ⚠ HOMOGENEOUS INPUT — the input is dominated by a single "
+                      "style. Consensus in this run is largely tautological "
+                      "(same-mandate funds buying the same names) and therefore "
+                      "carries little independent information. See Appendix 3 for "
+                      "remediation (which fund styles to add)."]
+        else:
+            lines += ["- Input spans multiple styles; cross-style agreement is "
+                      "treated as more informative than within-style agreement."]
+    lines += [""]
 
     lines += ["## Next layer", ""]
     lines += [f"{n_pass} tickers advance to Layer 3 for composite ranking."]

@@ -15,6 +15,7 @@ processing to write the log to disk.
 from __future__ import annotations
 
 import logging
+import os
 from datetime import date
 from pathlib import Path
 from typing import Optional
@@ -48,8 +49,10 @@ def _merge_dp(
 class ProviderRegistry:
     """Orchestrates provider calls in priority order with multi-source resolution."""
 
-    def __init__(self):
-        self._edgar = EDGARProvider()
+    def __init__(self, contact_email: Optional[str] = None):
+        # B1 (v0.3): the SEC contact email flows into the EDGAR User-Agent.
+        # kwarg wins; otherwise EDGARProvider falls back to EDGAR_CONTACT_EMAIL.
+        self._edgar = EDGARProvider(contact_email=contact_email)
         self._yfinance = yfinanceProvider()
 
     def fetch(

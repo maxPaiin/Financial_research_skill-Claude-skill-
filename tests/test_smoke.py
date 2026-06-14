@@ -63,6 +63,51 @@ class TestDateRegex(unittest.TestCase):
 
 
 # -----------------------------------------------------------------------------
+# validate_uploads — B1 SEC contact-email gate (v0.3)
+# -----------------------------------------------------------------------------
+
+class TestEmailGate(unittest.TestCase):
+    def test_valid_emails(self):
+        from validate_uploads import valid_email
+        for e in ("a@b.com", "ops.team@example.co.uk", "  me@x.io  "):
+            self.assertTrue(valid_email(e), e)
+
+    def test_invalid_emails(self):
+        from validate_uploads import valid_email
+        for e in (None, "", "nope", "a@b", "a@@b.com", "no spaces @x.com"):
+            self.assertFalse(valid_email(e), e)
+
+    def test_gate_message_states_why_and_privacy(self):
+        from validate_uploads import EMAIL_GATE_MESSAGE
+        self.assertIn("403", EMAIL_GATE_MESSAGE)
+        self.assertIn("Privacy", EMAIL_GATE_MESSAGE)
+
+    def test_validate_fails_without_email(self):
+        from validate_uploads import validate
+        with tempfile.TemporaryDirectory() as tmp:
+            res = validate(Path(tmp), email=None)
+            self.assertFalse(res["ok"])
+            self.assertFalse(res["email_ok"])
+            self.assertTrue(any("403" in e for e in res["errors"]))
+
+
+class TestEdgarUserAgent(unittest.TestCase):
+    def test_ua_carries_email(self):
+        from providers.edgar_provider import EDGARProvider, _USER_AGENT_APP
+        with tempfile.TemporaryDirectory() as tmp:
+            p = EDGARProvider(cache_dir=Path(tmp), contact_email="ops@example.com")
+            ua = p._session.headers["User-Agent"]
+            self.assertIn("ops@example.com", ua)
+            self.assertIn(_USER_AGENT_APP, ua)
+
+    def test_ua_without_email_has_no_at(self):
+        from providers.edgar_provider import EDGARProvider
+        with tempfile.TemporaryDirectory() as tmp:
+            p = EDGARProvider(cache_dir=Path(tmp), contact_email=None)
+            self.assertNotIn("@", p._session.headers["User-Agent"])
+
+
+# -----------------------------------------------------------------------------
 # extract_holdings — ticker normalization (M1) & non-equity detection (M2)
 # -----------------------------------------------------------------------------
 
@@ -200,6 +245,76 @@ class TestCrowdingSignal(unittest.TestCase):
         from crowding_signal import compute
         result = compute("X", n_funds_holding=20, avg_weight=0.20)
         self.assertLessEqual(result.crowding_discount, 0.60)
+
+    # --- A2: days-to-liquidate (v0.3) ---
+    def test_nav_only_fallback_when_no_liquidity_data(self):
+        from crowding_signal import compute
+        r = compute("X", n_funds_holding=4, avg_weight=0.03)
+        self.assertEqual(r.crowding_label, "NAV-only")
+        self.assertIsNone(r.days_to_liquidate)
+        # NAV-only must equal the pure-weight base (no amplifier).
+        base = max(0.0, (0.03 - 0.02) / 0.08) * (4 / 5.0)
+        self.assertAlmostEqual(r.crowding_discount, round(base, 4), places=4)
+
+    def test_illiquid_midcap_penalised_harder(self):
+        from crowding_signal import compute
+        big = compute("BIG", 4, 0.03, adv_usd=5e9, aggregate_position_usd=2e9)
+        mid = compute("MID", 4, 0.03, adv_usd=5e7, aggregate_position_usd=2e9)
+        self.assertEqual(big.crowding_label, "liquidity-inclusive")
+        self.assertGreater(mid.days_to_liquidate, big.days_to_liquidate)
+        self.assertGreater(mid.crowding_discount, big.crowding_discount)
+
+    # --- A3: style-diversity-weighted consensus (v0.3) ---
+    def test_diverse_holders_beat_homogeneous(self):
+        from crowding_signal import compute
+        homo = compute("H", 6, 0.03, holder_styles=["growth"] * 6)
+        divr = compute("D", 6, 0.03, holder_styles=[
+            "growth", "value", "blend", "income_dividend",
+            "small_mid_cap", "region_tilt_non_us"])
+        self.assertEqual(homo.style_diversity, 0.0)
+        self.assertEqual(divr.style_diversity, 1.0)
+        self.assertGreater(divr.consensus_weighted, homo.consensus_weighted)
+
+    def test_unlabelled_styles_no_weighting(self):
+        from crowding_signal import compute
+        r = compute("X", 5, 0.03, holder_styles=None)
+        self.assertIsNone(r.style_diversity)
+        self.assertEqual(r.consensus_weighted, r.consensus_raw)
+
+    def test_homogeneity_report(self):
+        from crowding_signal import homogeneity_report
+        homo = homogeneity_report({"F1": "growth", "F2": "growth", "F3": "growth"}, 3)
+        self.assertTrue(homo["is_homogeneous"])
+        self.assertEqual(homo["dominant_style"], "growth")
+        mixed = homogeneity_report(
+            {"F1": "growth", "F2": "value", "F3": "income_dividend"}, 3)
+        self.assertFalse(mixed["is_homogeneous"])
+        none = homogeneity_report({}, 3)
+        self.assertFalse(none["labelled"])
+
+
+# -----------------------------------------------------------------------------
+# build_rankings — A4 low-anchor confidence shrinkage (v0.3)
+# -----------------------------------------------------------------------------
+
+class TestLowAnchorShrinkage(unittest.TestCase):
+    def test_lower_confidence_pulled_lower(self):
+        from build_rankings import low_anchor_shrink
+        edgar = low_anchor_shrink(80.0, 0.9)
+        yfin = low_anchor_shrink(80.0, 0.5)
+        self.assertGreater(edgar, yfin)
+        # EDGAR (0.9) barely moved off 80; yfinance (0.5) pulled toward 10.
+        self.assertGreater(edgar, 70.0)
+        self.assertLess(yfin, 50.0)
+
+    def test_q_low_floor_is_positive(self):
+        from build_rankings import low_anchor_shrink
+        # A low-confidence zero-Q stock must floor above 0 (Q_LOW > 0 invariant).
+        self.assertGreater(low_anchor_shrink(0.0, 0.1), 0.0)
+
+    def test_missing_confidence_defaults_to_shrunk(self):
+        from build_rankings import low_anchor_shrink
+        self.assertEqual(low_anchor_shrink(80.0, None), low_anchor_shrink(80.0, 0.5))
 
 
 # -----------------------------------------------------------------------------
@@ -429,6 +544,82 @@ class TestDataAsofRoundTrip(unittest.TestCase):
         self.assertEqual(as_dict["data_asof"], "2024-12-31")
         round_tripped = record_from_dict(as_dict)
         self.assertEqual(round_tripped.data_asof, date(2024, 12, 31))
+
+
+# -----------------------------------------------------------------------------
+# build_report — layer3 slicing (v0.3 D2 section order)
+# -----------------------------------------------------------------------------
+
+class TestLayer3Slice(unittest.TestCase):
+    def test_slice_separates_framing_cards_methodology(self):
+        import build_report
+        layer3 = (
+            "# Layer 3: Ranked Watchlist\n\n"
+            "## What this analysis is and is not\n\nFraming prose.\n\n"
+            "## Tier A\n\n### #1 AAPL\nbody\n\n"
+            "## Methodology disclosure\n\n- detail\n\n"
+            "## Important caveats\n\n- caveat\n\n"
+            "## Disclaimer\n\nverbatim disclaimer\n"
+        )
+        framing, cards, methodology = build_report._slice_layer3(layer3)
+        self.assertIn("Framing prose", framing)
+        self.assertIn("Tier A", cards)
+        self.assertNotIn("Methodology disclosure", cards)
+        self.assertNotIn("Disclaimer", cards)
+        self.assertIn("Methodology disclosure", methodology)
+        self.assertNotIn("Disclaimer", methodology)
+
+
+# -----------------------------------------------------------------------------
+# check_checkpoints — D4 deterministic review gate
+# -----------------------------------------------------------------------------
+
+class TestCheckpointGate(unittest.TestCase):
+    def _seed(self, work: Path):
+        (work / "layer1_extraction.md").write_text(
+            "# Layer 1\n## Input\n## Per-fund extraction\n")
+        (work / "layer2_screening.md").write_text(
+            "## Quality screen results\n## Input-set style homogeneity\n")
+        (work / "layer3_ranked_advice.md").write_text(
+            "## Methodology disclosure\nConfidence-shrinkage\nexit-crowdedness\n")
+
+    def test_base_ok(self):
+        import check_checkpoints as cc
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            self._seed(work)
+            self.assertTrue(cc.review(work, set())["ok"])
+
+    def test_required_optional_missing_fails(self):
+        import check_checkpoints as cc
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            self._seed(work)
+            self.assertFalse(cc.review(work, {"macro_checkpoint.md"})["ok"])
+
+    def test_macro_requires_attribution(self):
+        import check_checkpoints as cc
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            self._seed(work)
+            (work / "macro_checkpoint.md").write_text("Fed held rates steady.\n")
+            res = cc.review(work, set())
+            self.assertFalse(res["ok"])
+            (work / "macro_checkpoint.md").write_text(
+                "Fed held rates steady. [Fed; Reuters]\n")
+            self.assertTrue(cc.review(work, set())["ok"])
+
+    def test_bias_note_regression_caught(self):
+        import check_checkpoints as cc
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            self._seed(work)
+            (work / "layer3_ranked_advice.md").write_text(
+                "## Methodology disclosure\nConfidence-shrinkage\nexit-crowdedness\n"
+                "**Bias note:** repeated per card\n")
+            res = cc.review(work, set())
+            self.assertFalse(res["ok"])
+            self.assertTrue(any("Bias note" in p for p in res["problems"]))
 
 
 if __name__ == "__main__":

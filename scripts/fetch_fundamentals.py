@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from dataclasses import asdict, is_dataclass
 from datetime import date
@@ -42,6 +43,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from providers.base import DataPoint, FundamentalsRecord  # noqa: E402
 from providers.registry import ProviderRegistry  # noqa: E402
+from validate_uploads import valid_email, EMAIL_GATE_MESSAGE  # noqa: E402
 
 
 def _serialize(obj):
@@ -106,7 +108,20 @@ def main():
         help="Optional path to write data_provenance.json (Stage 2c output). "
              "Defaults to <out-dir>/data_provenance.json.",
     )
+    ap.add_argument(
+        "--email",
+        help="SEC EDGAR contact email (B1). Falls back to EDGAR_CONTACT_EMAIL. "
+             "REQUIRED — SEC returns 403 without a contact email in the UA.",
+    )
     args = ap.parse_args()
+
+    # B1: enforce the email gate at the EDGAR-calling stage too. The user-facing
+    # gate is Stage 0 (validate_uploads.py), but fetching without a valid email
+    # would 403 against SEC, so we halt here as well.
+    contact_email = (args.email or os.environ.get("EDGAR_CONTACT_EMAIL") or "").strip()
+    if not valid_email(contact_email):
+        print(EMAIL_GATE_MESSAGE, file=sys.stderr)
+        sys.exit(2)
 
     asof = date.fromisoformat(args.asof) if args.asof else date.today()
     holdings = json.loads(Path(args.holdings).read_text(encoding="utf-8"))
@@ -117,7 +132,7 @@ def main():
         print("WARNING: unique_universe is empty. Did you run extract_holdings.py --dedupe?",
               file=sys.stderr)
 
-    registry = ProviderRegistry()
+    registry = ProviderRegistry(contact_email=contact_email)
     fundamentals: dict[str, dict] = {}
     unscored: list[dict] = []
 

@@ -1,4 +1,21 @@
-# Financial Research Skill v0.2
+# Financial Research Skill v0.3
+
+> **v0.3 (current)** — risk-aware consensus, confidence-penalised quality, central-bank-anchored
+> macro appendix, conservative-by-design. Key deltas vs v0.2:
+> - **Confidence-shrunk quality (A4).** The quality half is low-anchor shrunk: `Q'' = c·Q + (1−c)·10`.
+>   Low-confidence (yfinance) quality is pulled toward a low-but-non-zero anchor, so unverifiable
+>   numbers cannot float a stock to mid-pack. Applied to quality only; not re-percentiled.
+> - **Exit-crowdedness (A2).** Crowding now folds in days-to-liquidate = (Σ fund_AUM × weight) / ADV,
+>   labelled liquidity-inclusive or NAV-only.
+> - **Style-diversity-weighted consensus (A3).** Cross-style agreement outweighs same-mandate
+>   funds; a run-level homogeneity warning fires when the input is single-style. Stratified
+>   sampling is abandoned (sample too small; token budget).
+> - **SEC email gate (B1).** A user-supplied contact email is required and injected into the EDGAR
+>   User-Agent (SEC returns 403 without it).
+> - **Macro & expectations appendices (C).** Central-bank-anchored, primary-first, with a hard
+>   ≥2-primary-tier corroboration gate and per-sentence attribution.
+> - **Denser PDF + checkpoint copy (D).** Fewer forced page breaks; all checkpoint `.md` files are
+>   copied to the user-visible outputs directory.
 
 ### Test Report (May 26, 2026)
 
@@ -40,10 +57,11 @@ The verbatim disclaimer in `assets/disclaimer.md` is embedded into every generat
 Given **7–11 HKMA-approved global fund prospectus PDFs**, the skill runs a three-layer pipeline:
 
 1. **Layer 1 — Extraction**: validates uploads, extracts US-listed equity holdings (including ADRs) from each fund via LLM-assisted PDF parsing, filters out non-US listings, deduplicates across funds.
-2. **Layer 2 — Overlap & Screen**: builds a cross-fund overlap matrix, fetches fundamentals from SEC EDGAR (true PIT) with yfinance fallback, applies a quality screen (PASS/FAIL), computes a fundamental quality percentile score, and computes a consensus-with-crowding-discount signal.
-3. **Layer 3 — Ranking & Advice**: composite-ranks the passed universe (50% fundamental quality + 50% crowding-discounted consensus), selects the top 15 stocks, organizes them into Tier A/B/C, and generates per-stock rationale cards with honest framing.
+2. **Layer 2 — Overlap & Screen**: builds a cross-fund overlap matrix, fetches fundamentals from SEC EDGAR (true PIT) with yfinance fallback, applies a quality screen (PASS/FAIL), computes a fundamental quality percentile score, and computes the v0.3 consensus signal (style-diversity-weighted, with an exit-liquidity / days-to-liquidate crowding discount).
+3. **Layer 3 — Ranking & Advice**: composite-ranks the passed universe (fixed 50/50; the quality half is low-anchor confidence-shrunk), selects the top 15 stocks, organizes them into Tier A/B/C, and generates per-stock rationale cards with honest framing (HK-bias stated once).
+4. **Macro appendices (v0.3)**: central-bank-anchored macro/sector view, per-stock best/avg/worst scenarios, and an over-consensus / fund-style remediation appendix — all under a hard ≥2-primary-tier source-corroboration gate.
 
-**Output**: three layered `.md` files and a single English-only PDF report (18–26 pages).
+**Output**: the layered `.md` checkpoints and a single English-only PDF report, all copied to the user-visible outputs directory.
 
 ---
 
@@ -162,9 +180,10 @@ Full orchestration logic and error recovery rules: [`SKILL.md`](./SKILL.md).
 ├── references/                       # Methodology readers (no executable code)
 │   ├── methodology.md                # What the skill does and does not do
 │   ├── quality_screen.md             # Screen criteria and rationale
-│   ├── crowding_signal.md            # Signal formula and interpretation
-│   ├── providers.md                  # Provider routing, EDGAR contract, confidence
-│   └── honest_framing.md             # Framing template for Layer 3
+│   ├── crowding_signal.md            # Signal formula (A2 days-to-liquidate, A3 diversity)
+│   ├── providers.md                  # Provider routing, EDGAR contract (B1 email), confidence
+│   ├── honest_framing.md             # Framing template for Layer 3 (bias stated once)
+│   └── macro_appendix.md             # v0.3 macro/expectations appendices + source gate
 ├── scripts/                          # Deterministic computation (no LLM calls)
 │   ├── validate_uploads.py
 │   ├── extract_holdings.py
@@ -175,7 +194,8 @@ Full orchestration logic and error recovery rules: [`SKILL.md`](./SKILL.md).
 │   ├── build_rankings.py
 │   ├── build_report.py
 │   ├── quality_screen.py
-│   ├── crowding_signal.py
+│   ├── crowding_signal.py            # A2 days-to-liquidate + A3 style-diversity / homogeneity
+│   ├── check_checkpoints.py          # v0.3 D4 deterministic checkpoint review gate
 │   ├── layer1_report.py
 │   ├── layer2_report.py
 │   ├── layer3_report.py
@@ -199,7 +219,10 @@ Full orchestration logic and error recovery rules: [`SKILL.md`](./SKILL.md).
 pip install -r requirements.txt --break-system-packages
 ```
 
-No API keys required. EDGAR access uses an anonymous User-Agent hardcoded per SEC fair-use policy.
+No API keys required. **A SEC EDGAR contact email is required (v0.3 B1)** — SEC returns 403
+without one. Supply it via `--email you@example.com` to `validate_uploads.py` /
+`fetch_fundamentals.py`, or set `EDGAR_CONTACT_EMAIL`. The email is placed only into the EDGAR
+request header; it is not stored or transmitted anywhere else.
 
 ---
 
@@ -210,8 +233,8 @@ This is a Claude skill — upload 7–11 HKMA-approved fund factsheet PDFs and a
 For local development, individual scripts can be run directly:
 
 ```bash
-# Stage 0 — validate
-python scripts/validate_uploads.py /path/to/uploads
+# Stage 0 — validate (+ SEC email gate)
+python scripts/validate_uploads.py /path/to/uploads --email you@example.com
 
 # Stage 1b-d — filter and dedupe (after Claude writes holdings.json at Stage 1a)
 python scripts/extract_holdings.py --input /home/claude/work/holdings.json --dedupe
@@ -227,6 +250,7 @@ python scripts/overlap_analysis.py \
 # Stage 2b — fetch fundamentals from EDGAR + yfinance, with resolver
 python scripts/fetch_fundamentals.py \
   --holdings /home/claude/work/holdings.json \
+  --email you@example.com \
   --out /home/claude/work/fundamentals.json
 
 # Stage 2d — quality screen (PASS / FAIL)
@@ -243,8 +267,12 @@ python scripts/compute_scores.py \
   --out /home/claude/work/scores_per_stock.json
 
 # Stage 2f — consensus-with-crowding-discount signal
+# (v0.3: --holdings adds fund AUM + style for days-to-liquidate / diversity;
+#  --fundamentals adds per-ticker ADV. Both optional — absent => NAV-only, unweighted.)
 python scripts/crowding_signal.py \
   --overlap /home/claude/work/overlap.json \
+  --holdings /home/claude/work/holdings.json \
+  --fundamentals /home/claude/work/fundamentals.json \
   --out /home/claude/work/crowding_signals.json
 
 # Stage 3a — composite ranking
@@ -254,7 +282,10 @@ python scripts/build_rankings.py \
   --overlap /home/claude/work/overlap.json \
   --out /home/claude/work/rankings.json
 
-# Stage 4 — PDF assembly
+# Macro gate — deterministic checkpoint review (v0.3 D4)
+python scripts/check_checkpoints.py /home/claude/work/
+
+# Stage 4 — PDF assembly (+ copies all checkpoint .md to the outputs dir, D5)
 python scripts/build_report.py \
   --work-dir /home/claude/work/ \
   --out /mnt/user-data/outputs/financial_research_report.pdf
@@ -275,32 +306,41 @@ Offline, no network calls, no pytest dependency.
 Three downloadable `.md` files plus a final English-only PDF:
 
 
-| File                            | Content                                                                      |
-| ------------------------------- | ---------------------------------------------------------------------------- |
-| `layer1_extraction.md`          | Per-fund extraction summary, universe size, out-of-scope tickers             |
-| `layer2_screening.md`           | Overlap matrix, quality screen results (pass + fail disclosed), data quality |
-| `layer3_ranked_advice.md`       | Honest framing, top-15 watchlist with rationale cards, methodology           |
-| `financial_research_report.pdf` | All of the above, assembled into 18–26 page English PDF                     |
+| File                              | Content                                                                      |
+| --------------------------------- | ---------------------------------------------------------------------------- |
+| `layer1_extraction.md`            | Per-fund extraction summary (with style labels), universe size, out-of-scope |
+| `layer2_screening.md`             | Overlap matrix, quality screen, data quality, liquidity labels + homogeneity |
+| `layer3_ranked_advice.md`         | Honest framing (bias once), top-15 watchlist cards, methodology disclosure   |
+| `macro_checkpoint.md`             | v0.3 — central-bank-anchored macro/sector view, per-sentence attribution     |
+| `expectations_checkpoint.md`      | v0.3 — per-stock best/avg/worst scenarios driven by the macro view           |
+| `appendix3_consensus_warning.md`  | v0.3 — over-consensus & false-theme warning + fund-style remediation         |
+| `financial_research_report.pdf`   | All of the above, assembled into a denser English PDF (18–26pp ceiling)      |
+
+All checkpoint `.md` files are copied to `/mnt/user-data/outputs` alongside the PDF (the
+container work dir is ephemeral and resets between sessions).
 
 ---
 
-## Key design decisions (v0.2 vs v1)
+## Key design decisions (v1 → v0.2 → v0.3)
 
 
-| Decision        | v1                                                   | v0.2                                                 |
-| --------------- | ---------------------------------------------------- | ---------------------------------------------------- |
-| Scope           | Multi-market, claimed alpha                          | US equities, honestly scoped to HK channel           |
-| Strategies      | 3 parallel (Growth / Conservative / Risk-avoidance)  | 1 ranking, 3 display tiers                           |
-| Backtest        | Monthly-rebalanced with CAGR/Sharpe/MDD              | Removed (misleading given inputs)                    |
-| Output language | Bilingual (English + Chinese)                        | English-only                                         |
-| Data source     | yfinance + FRED only                                 | EDGAR (PIT, conf 0.9) + yfinance fallback (conf 0.5) |
-| Quality metric  | Continuous score (industry + growth + quality_value) | Binary screen + single ROE percentile rank           |
+| Decision        | v1                                                   | v0.2                                                 | v0.3                                                              |
+| --------------- | ---------------------------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------- |
+| Scope           | Multi-market, claimed alpha                          | US equities, honestly scoped to HK channel           | unchanged                                                         |
+| Strategies      | 3 parallel (Growth / Conservative / Risk-avoidance)  | 1 ranking, 3 display tiers                           | unchanged                                                         |
+| Backtest        | Monthly-rebalanced with CAGR/Sharpe/MDD              | Removed (misleading given inputs)                    | unchanged (still none)                                            |
+| Output language | Bilingual (English + Chinese)                        | English-only                                         | unchanged                                                         |
+| Data source     | yfinance + FRED only                                 | EDGAR (conf 0.9) + yfinance (conf 0.5)               | + central-bank directed-fetch (Fed/ECB/BoJ) for macro appendix    |
+| Quality metric  | Continuous score (industry + growth + quality_value) | Binary screen + single ROE percentile rank           | + low-anchor confidence shrinkage `Q'' = c·Q + (1−c)·10`          |
+| Consensus       | Raw count                                            | Consensus-with-crowding (NAV-share discount)         | Style-diversity-weighted + exit-crowdedness (days-to-liquidate)   |
+| EDGAR UA        | n/a                                                  | Hardcoded, no email (would 403)                      | User-supplied contact email, gated at Stage 0 (B1)               |
 
 ---
 
 ## Dependencies
 
-- `pypdf >= 4.0` — PDF parsing
+- `pypdf >= 4.0` — Stage 0 validation / flat-text fallback
+- `pdfplumber >= 0.11` — Stage 1a hybrid table extraction (v0.3 D1)
 - `yfinance >= 0.2.40` — market data fallback (only imported in `providers/yfinance_provider.py`)
 - `requests >= 2.31` — EDGAR HTTP calls
 - `pandas >= 2.0`, `numpy >= 1.24`
