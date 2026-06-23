@@ -1,3 +1,5 @@
+> **Trigger keyword:** `/claude_skill_Financial_research`
+
 # Financial Research Skill v0.3
 
 > **v0.3 (current)** — risk-aware consensus, confidence-penalised quality, central-bank-anchored
