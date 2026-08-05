@@ -12,6 +12,7 @@ review and ensure subsequent edits don't regress the fixes.
 
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -620,6 +621,347 @@ class TestCheckpointGate(unittest.TestCase):
             res = cc.review(work, set())
             self.assertFalse(res["ok"])
             self.assertTrue(any("Bias note" in p for p in res["problems"]))
+
+
+# -----------------------------------------------------------------------------
+# industry_map — sector-ETF column (v0.31 E2.3)
+# -----------------------------------------------------------------------------
+
+class TestSectorETFMap(unittest.TestCase):
+    def test_every_bucket_is_covered(self):
+        from providers.industry_map import BUCKETS, SECTOR_ETF
+        self.assertEqual(set(BUCKETS), set(SECTOR_ETF))
+
+    def test_known_buckets_map(self):
+        from providers.industry_map import sector_etf
+        self.assertEqual(sector_etf("technology"), "XLK")
+        self.assertEqual(sector_etf("financials"), "XLF")
+
+    def test_other_is_unmapped_not_proxied(self):
+        # A data gap must surface as "insufficient data" (E3.2), never as a
+        # broad-market stand-in that would silently become a verdict.
+        from providers.industry_map import sector_etf
+        self.assertIsNone(sector_etf("other"))
+        self.assertIsNone(sector_etf(None))
+        self.assertIsNone(sector_etf("not_a_bucket"))
+
+
+# -----------------------------------------------------------------------------
+# etf_relative_strength — fixed-window RS math (v0.31 E2.3)
+# -----------------------------------------------------------------------------
+
+class TestRelativeStrength(unittest.TestCase):
+    @staticmethod
+    def _series(n: int, daily: float, start: float = 100.0):
+        out, price = [], start
+        for _ in range(n):
+            out.append(price)
+            price *= (1.0 + daily)
+        return out
+
+    def test_window_return_needs_enough_history(self):
+        from etf_relative_strength import window_return
+        self.assertIsNone(window_return(self._series(50, 0.0), 63))
+        self.assertIsNotNone(window_return(self._series(300, 0.0), 252))
+
+    def test_relative_strength_is_excess_not_absolute(self):
+        from etf_relative_strength import relative_strength
+        # Both up strongly; the faster one has positive RS, the benchmark's own
+        # level is irrelevant — absolute return would mostly measure beta.
+        fast = self._series(300, 0.002)
+        slow = self._series(300, 0.001)
+        rs = relative_strength(fast, slow, 63)
+        self.assertGreater(rs, 0)
+        self.assertLess(relative_strength(slow, fast, 63), 0)
+
+    def test_classify_rs_bands(self):
+        from etf_relative_strength import classify_rs
+        self.assertEqual(classify_rs({"3M": 0.10, "6M": 0.12})[1], "outperforming")
+        self.assertEqual(classify_rs({"3M": -0.10, "6M": -0.12})[1], "lagging")
+        self.assertEqual(classify_rs({"3M": 0.01, "6M": -0.01})[1], "inline")
+        self.assertEqual(classify_rs({"3M": None, "6M": None})[1], "insufficient_data")
+
+    def test_classify_divergence_bands(self):
+        from etf_relative_strength import classify_divergence
+        self.assertEqual(classify_divergence({"3M": 0.30})[1], "positive")
+        self.assertEqual(classify_divergence({"3M": -0.30})[1], "negative")
+        self.assertEqual(classify_divergence({"3M": 0.02})[1], "none")
+
+    def test_missing_etf_mapping_yields_insufficient_data(self):
+        from etf_relative_strength import build
+        out = build(
+            [{"ticker": "XYZ", "industry": "other"}],
+            {"SPY": self._series(300, 0.0005)},
+        )
+        self.assertEqual(out["stocks"]["XYZ"]["status"], "insufficient_data")
+        self.assertEqual(out["stocks"]["XYZ"]["divergence"], "insufficient_data")
+
+
+# -----------------------------------------------------------------------------
+# coherence_audit — the v0.31 overlay invariants
+# -----------------------------------------------------------------------------
+
+class TestCoherenceOverlay(unittest.TestCase):
+    TIGHTENING = {"policy_rate_direction": "tightening", "inflation_trend": "rising"}
+    EASING = {"policy_rate_direction": "easing", "inflation_trend": "falling"}
+
+    EXPANSIONARY = {
+        "industries": {
+            "technology": {
+                "input_constraint": {"direction": "easing"},
+                "pricing_power": {"direction": "expanding"},
+                "return_on_capital": {"direction": "improving"},
+                "capital_sensitivity": "high",
+            }
+        }
+    }
+
+    @staticmethod
+    def _etf(rs_state="inline", divergence="none"):
+        return {
+            "benchmark": "SPY",
+            "sectors": {"technology": {"etf": "XLK", "status": "ok", "rs_state": rs_state}},
+            "stocks": {"AAA": {"etf": "XLK", "status": "ok", "divergence": divergence,
+                               "excess_mean": 0.0, "excess_vs_etf": {}}},
+        }
+
+    @staticmethod
+    def _row(rank=1, tier="A"):
+        return {"ticker": "AAA", "rank": rank, "tier": tier, "industry": "technology"}
+
+    def test_macro_stance_on_hold_with_rising_inflation_is_tightening(self):
+        from coherence_audit import macro_stance
+        self.assertEqual(
+            macro_stance({"policy_rate_direction": "on_hold",
+                          "inflation_trend": "rising"})[0], "tightening")
+        self.assertEqual(macro_stance(None)[0], "insufficient_data")
+
+    def test_logic_direction_needs_two_answers(self):
+        from coherence_audit import logic_direction
+        self.assertEqual(logic_direction({"pricing_power": {"direction": "expanding"}})[0],
+                         "insufficient_data")
+        self.assertEqual(
+            logic_direction(self.EXPANSIONARY["industries"]["technology"])[0],
+            "expansionary")
+
+    def test_coherent_case_leaves_tier_untouched(self):
+        # Neutral macro, expansionary logic, sector ETF in line -> no demotion.
+        from coherence_audit import audit_stock
+        rec = audit_stock(
+            self._row(),
+            {"policy_rate_direction": "on_hold", "inflation_trend": "stable"},
+            self.EXPANSIONARY,
+            self._etf(),
+        )
+        self.assertEqual(rec["tier_delta"], 0)
+        self.assertEqual(rec["tier"], "A")
+        self.assertEqual(rec["contradictions"], [])
+
+    def test_contradiction_demotes_one_tier_and_keeps_rank(self):
+        from coherence_audit import audit_stock
+        rec = audit_stock(
+            self._row(rank=3, tier="A"), self.TIGHTENING, self.EXPANSIONARY,
+            self._etf(rs_state="lagging"),
+        )
+        self.assertEqual(rec["rank"], 3)          # rank never moves
+        self.assertEqual(rec["base_tier"], "A")
+        self.assertEqual(rec["tier"], "B")
+        self.assertEqual(rec["tier_delta"], -1)
+        self.assertTrue(rec["contradictions"])
+        self.assertIn("demoted A->B", rec["commentary"])
+
+    def test_multiple_contradictions_do_not_compound(self):
+        # Tightening + expansionary logic + lagging ETF fires two pairs; the cap
+        # keeps it to a single tier so the overlay cannot de-facto reorder.
+        from coherence_audit import audit_stock
+        rec = audit_stock(
+            self._row(), self.TIGHTENING, self.EXPANSIONARY, self._etf(rs_state="lagging"),
+        )
+        self.assertGreaterEqual(len(rec["contradictions"]), 2)
+        self.assertEqual(rec["tier_delta"], -1)
+        self.assertEqual(rec["tier"], "B")
+
+    def test_tier_c_is_the_floor(self):
+        from coherence_audit import audit_stock, demote
+        self.assertEqual(demote("C", -1), "C")
+        rec = audit_stock(
+            self._row(rank=12, tier="C"), self.TIGHTENING, self.EXPANSIONARY,
+            self._etf(rs_state="lagging"),
+        )
+        self.assertEqual(rec["tier"], "C")
+
+    def test_overlay_can_never_promote(self):
+        from coherence_audit import demote
+        # A positive delta is clamped rather than honoured — the guarantee is
+        # enforced in the function, not trusted to callers (E0.1).
+        self.assertEqual(demote("B", 1), "B")
+        self.assertEqual(demote("C", 2), "C")
+
+    def test_missing_data_is_not_coherence_and_not_a_penalty(self):
+        from coherence_audit import audit_stock
+        rec = audit_stock(self._row(), None, {}, {})
+        self.assertEqual(rec["tier_delta"], 0)
+        self.assertEqual(rec["tier"], "A")
+        self.assertTrue(rec["insufficient_data"])
+        self.assertIn("insufficient data", rec["commentary"])
+        self.assertTrue(all(v["verdict"] != "coherent" for v in rec["verdicts"]))
+
+    def test_divergence_is_flagged_not_penalised(self):
+        from coherence_audit import audit_stock
+        rec = audit_stock(
+            self._row(),
+            {"policy_rate_direction": "on_hold", "inflation_trend": "stable"},
+            self.EXPANSIONARY,
+            self._etf(divergence="positive"),
+        )
+        self.assertEqual(rec["tier_delta"], 0)      # divergence never demotes
+        self.assertTrue(rec["divergence_flag"]["explanation_required"])
+
+    def test_audit_reports_run_level_counts(self):
+        from coherence_audit import audit
+        out = audit(
+            {"ranked": [self._row()]}, self.TIGHTENING, self.EXPANSIONARY,
+            self._etf(rs_state="lagging"),
+        )
+        self.assertEqual(out["n_records"], 1)
+        self.assertEqual(out["n_demoted"], 1)
+
+
+# -----------------------------------------------------------------------------
+# layer3_report — tier display with and without the overlay (v0.31 E0.3)
+# -----------------------------------------------------------------------------
+
+class TestLayer3Coherence(unittest.TestCase):
+    RANKINGS = {
+        "n_passed_universe": 40,
+        "ranked": [
+            {"ticker": "AAA", "rank": 3, "tier": "A", "industry": "technology",
+             "n_funds_holding": 5, "avg_weight": 0.03, "max_weight": 0.05},
+            {"ticker": "BBB", "rank": 4, "tier": "A", "industry": "financials",
+             "n_funds_holding": 4, "avg_weight": 0.02, "max_weight": 0.03},
+        ],
+    }
+    COHERENCE = {
+        "n_demoted": 1,
+        "records": [
+            {"ticker": "AAA", "rank": 3, "base_tier": "A", "tier": "B", "tier_delta": -1,
+             "contradictions": ["Tightening macro vs expansionary sector logic."],
+             "commentary": "Coherence: demoted A->B (rank unchanged). "
+                           "Tightening macro vs expansionary sector logic.",
+             "insufficient_data": [], "divergence_flag": None},
+            {"ticker": "BBB", "rank": 4, "base_tier": "A", "tier": "A", "tier_delta": 0,
+             "contradictions": [], "commentary": "Coherence: all three agree.",
+             "insufficient_data": [], "divergence_flag": None},
+        ],
+    }
+
+    def test_without_coherence_tiers_are_pure_rank_slices(self):
+        from layer3_report import build_layer3_md
+        md = build_layer3_md(self.RANKINGS, 8, "framing", {})
+        self.assertIn("## Tier A", md)
+        self.assertNotIn("## Tier B", md)
+        self.assertNotIn("Coherence:", md)
+        # The overlay's methodology block must not appear in a v0.3-equivalent run.
+        self.assertNotIn("Coherence overlay (v0.31)", md)
+
+    def test_demoted_stock_moves_tier_but_not_rank(self):
+        from layer3_report import build_layer3_md
+        md = build_layer3_md(self.RANKINGS, 8, "framing", {}, self.COHERENCE)
+        self.assertIn("## Tier B", md)
+        self.assertIn("### #3   AAA", md)            # rank unchanged
+        self.assertIn("demoted from A by the coherence overlay", md)
+        self.assertIn("Coherence overlay (v0.31)", md)   # methodology, stated once
+        self.assertEqual(md.count("Coherence overlay (v0.31)"), 1)
+
+    def test_demoted_stock_is_grouped_under_its_new_tier(self):
+        from layer3_report import build_layer3_md
+        md = build_layer3_md(self.RANKINGS, 8, "framing", {}, self.COHERENCE)
+        tier_a = md[md.index("## Tier A"):md.index("## Tier B")]
+        self.assertIn("BBB", tier_a)
+        self.assertNotIn("AAA", tier_a)
+
+
+# -----------------------------------------------------------------------------
+# check_checkpoints — coherence.json invariants (v0.31)
+# -----------------------------------------------------------------------------
+
+class TestCoherenceGate(unittest.TestCase):
+    def _write(self, work: Path, records: list[dict]):
+        (work / "coherence.json").write_text(
+            json.dumps({"records": records}), encoding="utf-8")
+
+    def test_valid_side_car_passes(self):
+        import check_checkpoints as cc
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            self._write(work, [
+                {"ticker": "AAA", "base_tier": "A", "tier": "B", "tier_delta": -1,
+                 "contradictions": ["named"]},
+                {"ticker": "BBB", "base_tier": "B", "tier": "B", "tier_delta": 0,
+                 "contradictions": []},
+            ])
+            self.assertEqual(cc.check_coherence(work / "coherence.json"), [])
+
+    def test_promotion_is_caught(self):
+        import check_checkpoints as cc
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            self._write(work, [{"ticker": "AAA", "base_tier": "B", "tier": "A",
+                                "tier_delta": 1, "contradictions": []}])
+            problems = cc.check_coherence(work / "coherence.json")
+            self.assertTrue(any("PROMOTED" in p for p in problems))
+
+    def test_two_tier_drop_is_caught(self):
+        import check_checkpoints as cc
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            self._write(work, [{"ticker": "AAA", "base_tier": "A", "tier": "C",
+                                "tier_delta": -2, "contradictions": ["x"]}])
+            problems = cc.check_coherence(work / "coherence.json")
+            self.assertTrue(any("demotion-only and capped" in p for p in problems))
+
+    def test_demotion_without_a_named_contradiction_is_caught(self):
+        import check_checkpoints as cc
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            self._write(work, [{"ticker": "AAA", "base_tier": "A", "tier": "B",
+                                "tier_delta": -1, "contradictions": []}])
+            problems = cc.check_coherence(work / "coherence.json")
+            self.assertTrue(any("without a named contradiction" in p for p in problems))
+
+    def test_absent_side_car_does_not_fail_the_gate(self):
+        # Reversibility: the overlay must stay removable without breaking D4.
+        import check_checkpoints as cc
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            (work / "layer1_extraction.md").write_text(
+                "# Layer 1\n## Input\n## Per-fund extraction\n")
+            (work / "layer2_screening.md").write_text(
+                "## Quality screen results\n## Input-set style homogeneity\n")
+            (work / "layer3_ranked_advice.md").write_text(
+                "## Methodology disclosure\nConfidence-shrinkage\nexit-crowdedness\n")
+            self.assertTrue(cc.review(work, set())["ok"])
+
+
+# -----------------------------------------------------------------------------
+# quality_screen — post-screen industry census (v0.31 E0.2, M1 scope)
+# -----------------------------------------------------------------------------
+
+class TestPassedIndustries(unittest.TestCase):
+    def test_counts_passed_only_and_sorts_descending(self):
+        from quality_screen import passed_industries
+        census = passed_industries([
+            {"passed": True, "industry": "technology"},
+            {"passed": True, "industry": "technology"},
+            {"passed": True, "industry": "financials"},
+            {"passed": False, "industry": "energy"},
+            {"passed": True, "industry": None},
+        ])
+        self.assertEqual(census["technology"], 2)
+        self.assertEqual(census["financials"], 1)
+        self.assertNotIn("energy", census)
+        self.assertEqual(census["other"], 1)          # unresolved industry bucket
+        self.assertEqual(list(census)[0], "technology")
 
 
 if __name__ == "__main__":

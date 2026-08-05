@@ -14,6 +14,8 @@ Reads (from <work-dir>):
 Outputs:
   /mnt/user-data/outputs/financial_research_report.pdf (default)
   /mnt/user-data/outputs/<each checkpoint>.md          (D5 copy)
+  /mnt/user-data/outputs/coherence.json                (v0.31 audit side-car,
+                                                        copied when present)
 
 PDF section order (v0.3, §3.4):
   1.  Cover
@@ -27,11 +29,19 @@ PDF section order (v0.3, §3.4):
   8.  Layer 2: Data quality summary + homogeneity state
   9.  Layer 3: Ranked watchlist (bias note NOT repeated; high-crowding warning
       kept; crowding labelled liquidity-inclusive / NAV-only)
-  10. Layer 3: Tier groupings
+  10. Layer 3: Tier groupings (v0.31 — tiers may be demoted by the coherence
+      overlay; ranks are never changed, and each demotion names its
+      contradiction on the card)
   11. Appendix 1+2: per-stock best/avg/worst scenarios + macro/sector drivers
   12. Appendix 3: over-consensus & false-theme warning + fund-style remediation
-  13. Methodology disclosure (confidence-shrinkage, days-to-liquidate, gate)
+  13. Methodology disclosure (confidence-shrinkage, days-to-liquidate, gate,
+      v0.31 coherence overlay + its limitations)
   14. Disclaimer (back)
+
+All Layer 3 content — including the overlay's tier demotions and per-card
+contradiction lines — arrives through layer3_ranked_advice.md, so this script
+needs no overlay-specific rendering: if the overlay did not run, the file simply
+has no coherence text and the PDF is the pre-overlay report.
 
 v0.3 layout (D2): hard page breaks are reserved for major boundaries (cover,
 front disclaimer, the analysis body, the appendices, the back disclaimer).
@@ -82,6 +92,10 @@ _CHECKPOINT_FILES = [
     "macro_checkpoint.md",
     "expectations_checkpoint.md",
     "appendix3_consensus_warning.md",
+    # v0.31: the overlay's audit trail. Copied so a reader can check every tier
+    # demotion against the three factor readings that produced it — the point of
+    # keeping the judgment out of the composite is that it stays separable.
+    "coherence.json",
 ]
 
 _MARGIN = 18 * mm
@@ -421,10 +435,11 @@ def build_pdf(work_dir: Path, out_path: Path):
 
 
 def copy_checkpoints(work_dir: Path, outputs_dir: Path) -> list[str]:
-    """D5: copy every present checkpoint .md to the user-visible outputs dir.
+    """D5: copy every present checkpoint file to the user-visible outputs dir.
 
     The container work dir is ephemeral; the user can only download what lands
-    in outputs_dir. Returns the list of filenames copied.
+    in outputs_dir. Covers the layer/appendix .md checkpoints plus the v0.31
+    coherence.json audit side-car. Returns the list of filenames copied.
     """
     outputs_dir.mkdir(parents=True, exist_ok=True)
     copied: list[str] = []
@@ -434,7 +449,7 @@ def copy_checkpoints(work_dir: Path, outputs_dir: Path) -> list[str]:
             shutil.copy2(src, outputs_dir / name)
             copied.append(name)
     if copied:
-        print(f"Copied {len(copied)} checkpoint .md file(s) to {outputs_dir}: "
+        print(f"Copied {len(copied)} checkpoint file(s) to {outputs_dir}: "
               f"{', '.join(copied)}")
     return copied
 

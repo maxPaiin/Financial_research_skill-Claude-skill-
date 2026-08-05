@@ -11,9 +11,14 @@ and lets a resumed run confirm its predecessors before proceeding.
 
 Usage:
   check_checkpoints.py <work_dir> [--require-macro] [--require-expectations]
-                                  [--require-appendix3]
+                                  [--require-appendix3] [--require-coherence]
 
 Exit code 0 if every present (and every required) checkpoint passes; 1 otherwise.
+
+v0.31: when `coherence.json` is present it is checked against the overlay's
+hard invariants (demotion-only, one-tier cap, tier == base_tier + delta). It is
+deliberately NOT required by default — the overlay must remain removable
+without breaking the gate (reversibility test, E1).
 """
 
 from __future__ import annotations
@@ -107,6 +112,59 @@ def check_file(path: Path, required: list[str]) -> list[str]:
     return problems
 
 
+_TIER_ORDER = ["A", "B", "C"]
+
+
+def check_coherence(path: Path) -> list[str]:
+    """v0.31: verify the overlay's invariants on the coherence.json side-car.
+
+    The overlay is only non-destructive if it can never promote and never drop
+    more than one tier — so those are checked mechanically rather than trusted.
+    """
+    if not path.exists():
+        return [f"missing file: {path.name}"]
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        return [f"{path.name}: not valid JSON ({e})"]
+
+    problems: list[str] = []
+    records = data.get("records")
+    if not isinstance(records, list):
+        return [f"{path.name}: no 'records' list"]
+
+    for r in records:
+        tkr = r.get("ticker", "?")
+        base, tier = r.get("base_tier"), r.get("tier")
+        delta = r.get("tier_delta")
+        if base not in _TIER_ORDER or tier not in _TIER_ORDER:
+            problems.append(f"{path.name}: {tkr} has an unknown tier ({base} -> {tier})")
+            continue
+        if delta not in (0, -1):
+            problems.append(
+                f"{path.name}: {tkr} tier_delta={delta} — the overlay is "
+                "demotion-only and capped at one tier (E3.2)."
+            )
+        expected = _TIER_ORDER[min(len(_TIER_ORDER) - 1,
+                                   _TIER_ORDER.index(base) - min(0, int(delta or 0)))]
+        if tier != expected:
+            problems.append(
+                f"{path.name}: {tkr} tier {tier} does not follow from "
+                f"base_tier {base} with delta {delta} (expected {expected})."
+            )
+        if _TIER_ORDER.index(tier) < _TIER_ORDER.index(base):
+            problems.append(
+                f"{path.name}: {tkr} was PROMOTED {base} -> {tier} — the overlay "
+                "may never promote (E0.1)."
+            )
+        if r.get("tier_delta") == -1 and not r.get("contradictions"):
+            problems.append(
+                f"{path.name}: {tkr} was demoted without a named contradiction "
+                "(E3.2 requires the contradiction to be stated)."
+            )
+    return problems
+
+
 def review(work_dir: Path, required_optional: set[str]) -> dict:
     results: dict[str, list[str]] = {}
     for name, sections in _REQUIRED_SECTIONS.items():
@@ -115,6 +173,10 @@ def review(work_dir: Path, required_optional: set[str]) -> dict:
         if not path.exists() and not is_required:
             continue  # optional checkpoint that simply was not produced
         results[name] = check_file(path, sections)
+
+    coherence_path = work_dir / "coherence.json"
+    if coherence_path.exists() or "coherence.json" in required_optional:
+        results["coherence.json"] = check_coherence(coherence_path)
 
     all_problems = [p for probs in results.values() for p in probs]
     return {
@@ -131,6 +193,9 @@ def main():
     ap.add_argument("--require-macro", action="store_true")
     ap.add_argument("--require-expectations", action="store_true")
     ap.add_argument("--require-appendix3", action="store_true")
+    ap.add_argument("--require-coherence", action="store_true",
+                    help="v0.31: fail if coherence.json is absent. Off by default so "
+                         "the overlay stays removable (reversibility test).")
     args = ap.parse_args()
 
     required_optional = set()
@@ -140,6 +205,8 @@ def main():
         required_optional.add("expectations_checkpoint.md")
     if args.require_appendix3:
         required_optional.add("appendix3_consensus_warning.md")
+    if args.require_coherence:
+        required_optional.add("coherence.json")
 
     result = review(Path(args.work_dir), required_optional)
     print(json.dumps(result, indent=2, ensure_ascii=False))

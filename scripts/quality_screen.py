@@ -23,16 +23,25 @@ Output schema — screen_results.json:
   "n_passed": 30,
   "n_failed": 15,
   "n_unscored": 5,
+  "passed_industries": {"technology": 12, "financials": 6},
   "results": [
     {"ticker": "AAPL", "passed": true,  "reason": null, "detail": null,
-     "source": "edgar"},
+     "source": "edgar", "industry": "technology"},
     {"ticker": "XYZ",  "passed": false, "reason": "roe_insufficient",
-     "detail": "ROE positive in only 2/5 years", "source": "yfinance"}
+     "detail": "ROE positive in only 2/5 years", "source": "yfinance",
+     "industry": "healthcare"}
   ],
   "unscored": [
     {"ticker": "ABC", "reason": "no data from EDGAR or yfinance"}
   ]
 }
+
+v0.31 (E0.2): `passed_industries` is the industry census of the POST-SCREEN
+universe. M1 (macro) moved from after-3a to after-2d and is scoped to these
+industries — the top-15 anchor it used in v0.3 is produced *by* ranking, so
+reading it before ranking would be circular. The screened universe exists prior
+to ranking and is bounded (typically a few dozen names across a limited set of
+industries), which preserves the cost-control intent of the original scoping.
 """
 
 from __future__ import annotations
@@ -118,6 +127,21 @@ def screen(ticker: str, record: FundamentalsRecord) -> ScreenResult:
         return ScreenResult(ticker=ticker, passed=False, reason=reason_code, detail=detail)
 
     return ScreenResult(ticker=ticker, passed=True)
+
+
+def passed_industries(results: list[dict]) -> dict[str, int]:
+    """Industry census of the post-screen universe (v0.31 E0.2 — M1's scope).
+
+    Descending by count so the macro stage reads the sectors that actually
+    dominate the screened universe first.
+    """
+    census: dict[str, int] = {}
+    for r in results:
+        if not r.get("passed"):
+            continue
+        bucket = r.get("industry") or "other"
+        census[bucket] = census.get(bucket, 0) + 1
+    return dict(sorted(census.items(), key=lambda kv: -kv[1]))
 
 
 def _max_consecutive_negatives(values: list[float]) -> int:
@@ -222,6 +246,9 @@ def main():
             "reason": sr.reason,
             "detail": sr.detail,
             "source": rec_dict.get("source"),
+            # v0.31 (E0.2): carried so the post-screen universe's industry
+            # census can be taken here, before ranking, for M1's scope.
+            "industry": record.industry,
         })
 
     n_passed = sum(1 for r in results if r["passed"])
@@ -233,6 +260,7 @@ def main():
         "n_passed": n_passed,
         "n_failed": n_failed,
         "n_unscored": len(unscored),
+        "passed_industries": passed_industries(results),
         "results": results,
         "unscored": unscored,
     }
@@ -244,6 +272,12 @@ def main():
         f"Screened {len(results)} of {len(universe)} (passed={n_passed}, "
         f"failed={n_failed}, unscored={len(unscored)}) -> {out_path}"
     )
+    census = out["passed_industries"]
+    if census:
+        print(
+            "Post-screen universe industries (M1 scope, v0.31): "
+            + ", ".join(f"{k}={v}" for k, v in census.items())
+        )
 
 
 if __name__ == "__main__":

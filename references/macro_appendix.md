@@ -1,10 +1,22 @@
-# Macro & Expectations Appendices Reference (v0.3)
+# Macro & Expectations Appendices Reference (v0.3, amended by v0.31)
 
 This file specifies the v0.3 web-retrieval subsystem and the three report
 appendices it feeds. It is a reader for Claude and humans — the macro stages
 (M1, M2) are performed by Claude in-conversation, not by a script. The only
 scripts involved are `check_checkpoints.py` (deterministic gate) and
 `build_report.py` (renders the appendix `.md` files into the PDF).
+
+> **v0.31 amendment (E0.2) — M1 moves earlier.** M1 now runs **after Stage 2d**
+> (post-screen, pre-rank) instead of after 3a, and its sector scope is anchored
+> to the **post-screen universe's industries** (`passed_industries` in
+> `screen_results.json`) instead of the top-15's. Reason: the coherence overlay
+> lets macro inform tiering, so macro must exist before ranking — and the top-15
+> is *produced by* ranking, which makes the old anchor circular. The screened
+> universe is bounded (a few dozen names across a limited set of industries), so
+> the cost-control intent of the original scoping rule is preserved.
+> **This is a pure sequencing move: M1's internal logic, its sources, the
+> directed-fetch policy and the C2 hard gate below are unchanged.** M2 stays
+> after ranking, scoped to the final 15.
 
 > **Premise carried from v0.3 §0:** primary sources outrank secondary; one-hand
 > data outranks news; central-bank output *is* the macro view and is the most
@@ -31,12 +43,35 @@ Reuters, WSJ, BlackRock public commentary (e.g. BlackRock Investment Institute),
 Fitch public rating commentary. Sell-side research (Citi/JPM/Nomura/…) is mostly
 paywalled — best-effort only.
 
-**Scope to the watchlist's industries — not a generic global macro dump.** Use
-the `industry` buckets already on each ranked stock and the per-fund industry
-breakdown to determine which sectors actually appear in the top-15, then analyse
-the macro **and aggregate market-demand** picture *for those sectors
-specifically*. This honours the per-industry Appendix-2 requirement and is
-cheaper than a generic survey because it bounds retrieval to the sectors in play.
+**Scope to the screened universe's industries — not a generic global macro dump.**
+Read `passed_industries` from `screen_results.json` (v0.31: the post-screen
+universe, available immediately after Stage 2d) to determine which sectors are
+actually in play, then analyse the macro **and aggregate market-demand** picture
+*for those sectors specifically*. This honours the per-industry Appendix-2
+requirement and is cheaper than a generic survey because it bounds retrieval to
+the sectors in play.
+
+**Also emit the structured fields (v0.31 E2.1) — do not re-fetch anything.**
+Inflation trajectory and the policy-rate path are already in the corpus above.
+Alongside `macro_checkpoint.md`, extract them into `macro_factors.json` so the
+coherence overlay can compare against them:
+
+```json
+{
+  "asof": "2026-08-01",
+  "policy_rate_direction": "tightening | on_hold | easing",
+  "inflation_trend": "rising | stable | falling",
+  "sources": {
+    "policy_rate_direction": ["Fed FOMC statement 2026-07-29", "Reuters"],
+    "inflation_trend": ["BLS CPI release 2026-07-14", "Fed SEP 2026-06"]
+  }
+}
+```
+
+The **C2 hard gate below applies unchanged** to any of this carried into the
+report. A direction that cannot clear the gate is left out — the overlay then
+records "insufficient data" and leaves the tier alone, which is the correct
+outcome. Full overlay spec: `references/coherence_overlay.md`.
 
 ---
 
@@ -136,8 +171,10 @@ in `crowding_signal.py` — keep the two in sync.
 
 ## Checkpoint discipline (D4/D5)
 
-- M1 writes `macro_checkpoint.md`; M2 writes `expectations_checkpoint.md`;
-  Appendix 3 is written to `appendix3_consensus_warning.md`.
+- M1 writes `macro_checkpoint.md` **and `macro_factors.json`** (v0.31); M2 writes
+  `expectations_checkpoint.md`; Appendix 3 is written to
+  `appendix3_consensus_warning.md`. Stage 3a-bis writes the `coherence.json`
+  side-car, which the gate checks for the overlay's invariants when present.
 - `check_checkpoints.py <work_dir>` is the deterministic gate (required sections,
   per-sentence attribution, percent-range sanity, D3 no-per-card-bias). Reserve
   LLM review for genuine judgment: rationale quality, framing accuracy, and the

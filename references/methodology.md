@@ -19,9 +19,12 @@ banking channels (Standard Chartered HK, Citi HK, and similar), the skill:
    confidence-shrunk** fundamental quality and a **style-diversity-weighted,
    exit-liquidity-aware** consensus-with-crowding-discount (see `references/crowding_signal.md`).
 4. Produces the top 15 ranked stocks with rationale cards and an honest framing section.
-5. Adds central-bank-anchored macro and per-stock scenario appendices, and an over-consensus
+5. Audits each ranked stock for coherence between the macro read, the sector operating logic
+   and sector-relative price action, and **demotes** (never promotes) the display tier where
+   they contradict each other (v0.31 — see `references/coherence_overlay.md`).
+6. Adds central-bank-anchored macro and per-stock scenario appendices, and an over-consensus
    / fund-style remediation appendix (v0.3 — see `references/macro_appendix.md`).
-6. Outputs the layered markdown checkpoints and a final English-only PDF; checkpoints are
+7. Outputs the layered markdown checkpoints and a final English-only PDF; checkpoints are
    copied to the user-visible outputs directory.
 
 ## v0.3 design premises (locked)
@@ -35,6 +38,27 @@ banking channels (Standard Chartered HK, Citi HK, and similar), the skill:
   hard ≥2-primary-tier corroboration rule with per-sentence attribution.
 - **Honesty about method is part of the product.** Every selection bias, data fallback, and
   source-filtering rule is disclosed in the report.
+
+## v0.31 additions (coherence overlay)
+
+- **Incoherence is uncertainty, and uncertainty is a quality defect.** This is premise 2
+  extended to a new axis: when the macro read, the sector logic and the price action
+  contradict each other, that stock's picture is incoherent and its display tier drops.
+- **Non-destructive by construction.** The overlay is **demotion-only**, capped at one tier,
+  and `rankings.json` is read-only to it. Deleting Stage 3a-bis reproduces the v0.3 report
+  exactly — reversibility as a hard property, not an aspiration.
+- **Judgment stays separable from the score.** Rank remains a purely quantitative product of
+  the composite; tier carries the qualitative judgment. "Ranked #3, demoted to B because X
+  contradicts Y" is auditable in a way that folding macro into the score could never be.
+- **No uncalibrated weight is written.** A `0.2·Macro` third axis was rejected: with no
+  backtest there is no way to validate the weight, and inventing one would be false
+  precision. The 50/50 split stays locked.
+- **Price is a divergence detector, never confirmation.** Momentum confirmation is
+  pro-cyclical, and consensus already is; stacking them would point both the wrong way
+  together in a de-rating. Only *contradiction* is acted on.
+- **Deferred on purpose.** Industry policy and company-level supply-chain mapping remain out
+  of scope — supplier relationships are absent from EDGAR's structured data and are the
+  highest fabrication risk in the proposal.
 
 ## What the skill is NOT
 

@@ -3,6 +3,12 @@ yfinance provider — degraded-PIT fallback (refactored from v1 fetch_market_dat
 
 Confidence baseline: 0.5 (current values projected back, not true PIT).
 This is the only file that imports yfinance — canonical per §8.1 acceptance criteria.
+
+v0.31 (E2.3) adds `fetch_close_series()` — daily closes for the coherence
+overlay's ETF relative-strength check. It lives here for the same reason the
+fundamentals fetch does: yfinance is imported in exactly one file. The
+relative-strength arithmetic itself is in `etf_relative_strength.py` so it
+stays unit-testable offline.
 """
 
 from __future__ import annotations
@@ -33,6 +39,33 @@ def _is_us_country(raw: Optional[str]) -> bool:
     if not raw:
         return False
     return bool(_US_COUNTRY_RE.match(raw.strip()))
+
+
+def fetch_close_series(
+    symbols: list[str],
+    period: str = "2y",
+) -> dict[str, list[float]]:
+    """Daily closes per symbol, oldest → newest (v0.31 E2.3).
+
+    Returns only symbols that yielded a usable series; a symbol that fails or
+    comes back empty is simply absent, and the caller records it as
+    "insufficient data" rather than substituting a proxy. Each symbol is
+    fetched independently so one bad ticker cannot void the whole batch.
+    """
+    out: dict[str, list[float]] = {}
+    for sym in dict.fromkeys(s for s in symbols if s):
+        try:
+            hist = yf.Ticker(sym).history(period=period, auto_adjust=True)
+            closes = [
+                float(v) for v in hist["Close"].tolist()
+                if v is not None and float(v) > 0
+            ]
+        except Exception as e:  # noqa: BLE001 — one bad symbol must not abort the batch
+            log.warning("yfinance close-series fetch failed for %s: %s", sym, e)
+            continue
+        if closes:
+            out[sym] = closes
+    return out
 
 
 class yfinanceProvider(FundamentalsProvider):

@@ -4,6 +4,10 @@ US-only industry bucket mapping — canonical location per §5.3.
 Maps raw sector/industry strings (from yfinance or SEC SIC) to one of the
 standardized buckets used throughout the pipeline. All keys are lower-case
 for case-insensitive matching.
+
+v0.31 (E2.3) also carries the industry -> sector-ETF column used by the
+coherence overlay's divergence detector. The ETF is only ever used to measure
+*relative strength versus SPY*; it is context, never confirmation.
 """
 
 # Canonical bucket list — do not add buckets without updating downstream.
@@ -103,9 +107,47 @@ _RAW_TO_BUCKET: dict[str, str] = {
 }
 
 
+
+# --- v0.31 (E2.3): industry -> sector-ETF column ----------------------------
+#
+# The overlay measures a sector's *relative strength versus SPY*, so the
+# benchmark is a constant here rather than a per-bucket choice. `other` is
+# deliberately left unmapped: a stock whose industry did not resolve must
+# surface as "insufficient data" (E3.2), never be silently attached to a
+# plausible-looking sector ETF.
+BENCHMARK_ETF = "SPY"
+
+SECTOR_ETF: dict[str, str | None] = {
+    "technology": "XLK",
+    "healthcare": "XLV",
+    "financials": "XLF",
+    "consumer_discretionary": "XLY",
+    "consumer_staples": "XLP",
+    "industrials": "XLI",
+    "energy": "XLE",
+    "materials": "XLB",
+    "real_estate": "XLRE",
+    "utilities": "XLU",
+    "communication_services": "XLC",
+    "other": None,
+}
+
+
 def normalize(raw: str | None) -> str:
     """Map a raw sector/industry string to a canonical bucket."""
     if not raw:
         return "other"
     key = raw.lower().strip()
     return _RAW_TO_BUCKET.get(key, "other")
+
+
+def sector_etf(bucket: str | None) -> str | None:
+    """Sector ETF proxy for a canonical bucket, or None when unmapped (E2.3).
+
+    None is a meaningful answer — the caller must record "insufficient data"
+    rather than fall back to a broad-market proxy, which would silently turn a
+    missing mapping into a coherence verdict.
+    """
+    if not bucket:
+        return None
+    return SECTOR_ETF.get(bucket.lower().strip())
