@@ -60,6 +60,37 @@ banking channels (Standard Chartered HK, Citi HK, and similar), the skill:
   of scope — supplier relationships are absent from EDGAR's structured data and are the
   highest fabrication risk in the proposal.
 
+## v0.32 (defect patch — currency integrity + input-review warnings)
+
+v0.32 adds no capability. It closes a currency-unit hole that v0.3's days-to-liquidate
+metric silently opened, and adds two warnings the existing gates do not produce. The
+composite weights, `Q''`, `C`, rank order, the viability thresholds and the v0.31 overlay
+are all untouched.
+
+- **Unlabelled distortion is the thing to prevent.** `currency` was in the `holdings.json`
+  schema but was never validated, never read and never converted. Before v0.3 that was
+  harmless: the only AUM-dependent check compared a weight sum to a fraction, so the
+  currency cancelled. Days-to-liquidate removed the cancellation — an HKD-reporting fund
+  overstates it by roughly 7.8×, silently. The distortion is at least directionally
+  conservative (over-penalisation, not false optimism), but it is still *unlabelled*, and
+  unlabelled distortion is exactly what this skill's honesty framing exists to prevent.
+- **Exclude rather than convert.** Non-USD and unstated AUM is set aside, not FX-converted.
+  Conversion would need an FX source, a rate-date policy and a new provenance path — three
+  new failure modes to repair a metric that already has a well-defined NAV-only fallback.
+  Units are either identical or the input is set aside and labelled; there is no third path.
+- **Never default an absent field to the convenient value.** An unstated currency is
+  recorded as `null` and treated exactly as non-USD. Defaulting to USD is precisely the
+  silent assumption this patch removes — and a bare `$` is ambiguous (USD/HKD/SGD/AUD), so
+  it counts as unstated too.
+- **Warn where re-weighting would overreach.** A fund with 20–35% US exposure votes as
+  loudly in the consensus as a 95%-US fund. Exposure-weighting the consensus would alter
+  `C`, whose definition is locked — so v0.32 flags the fund and says so in three places
+  instead. A defect patch corrects; it does not redefine a signal.
+- **Cheap feedback beats strict filtering.** The Stage 0 regional advisory fires before the
+  expensive Stage 1a parse but decides nothing: a blocking name-heuristic would falsely
+  reject exactly the edge cases the Stage 1c gate handles correctly. A false advisory costs
+  one sentence of noise; a false rejection discards a valid input.
+
 ## What the skill is NOT
 
 - **Not an alpha-generation tool.** The starting universe is a distribution-preference set,
@@ -78,6 +109,11 @@ banking channels (Standard Chartered HK, Citi HK, and similar), the skill:
    holdings, 30–60 days stale.
 3. **Small sample size.** 7–11 funds is statistically small; no claim of significance is made.
 4. **Survivorship in the fund universe.** Failed funds and their losing picks are absent.
+5. **Consensus counts funds, not exposure (v0.32).** A fund whose US sleeve is 20–35% of AUM
+   votes as loudly as one that is 95% US equity. Such funds are flagged, not down-weighted.
+6. **Exit-liquidity coverage is currency-limited (v0.32).** Only USD-reporting funds enter
+   the days-to-liquidate aggregate, so a HKD-heavy input set yields more NAV-only crowding
+   figures — a stated gap, never a silently converted number.
 
 ## Why these choices
 

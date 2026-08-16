@@ -33,10 +33,16 @@ from pathlib import Path
 # `optional=True` files are only checked when present (the macro subsystem may
 # not have run); a required-but-absent optional file is promoted via CLI flags.
 _REQUIRED_SECTIONS: dict[str, list[str]] = {
-    "layer1_extraction.md": ["# Layer 1", "## Input", "## Per-fund extraction"],
+    # v0.32 G4: the consolidated input-review block is required, not optional —
+    # scattering the currency / thin-exposure / advisory findings back across
+    # sections is the failure mode the block exists to prevent.
+    "layer1_extraction.md": ["# Layer 1", "## Input review", "## Per-fund extraction"],
     "layer2_screening.md": [
         "## Quality screen results",
         "## Input-set style homogeneity",
+        # v0.32 G1.4: the currency-exclusion statement must accompany the
+        # crowding labels; a NAV-only label alone does not explain itself.
+        "## Reporting currency and the exit-liquidity aggregate",
     ],
     "layer3_ranked_advice.md": [
         "## Methodology disclosure",

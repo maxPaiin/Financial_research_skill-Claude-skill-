@@ -149,12 +149,33 @@ Required markers (checked deterministically): the words **Best**, **Average**,
    > "Your input is 8 growth/tech funds. To obtain cross-style confirmation, add
    > a value fund, a dividend/income fund, a small/mid-cap fund, and a non-US-
    > tilted global fund."
+4. **Thin-US-exposure caveat (v0.32 G2)** — sits alongside the homogeneity
+   warning, because it is the same false-consensus problem seen from the
+   *exposure* angle rather than the *style* angle. Read
+   `input_review.thin_us_exposure` in `crowding_signals.json`. Where accepted
+   funds are flagged thin, say that the consensus signal partly rests on
+   marginal US sleeves and should be read as weaker still — naming the funds and
+   their US weight. State explicitly that their votes were **not** down-weighted,
+   so the reader knows the caveat is not already priced into the score.
+   **Where no accepted fund is thin, omit this caveat entirely** rather than
+   printing an empty one.
 
 A homogeneous input produces a populated Appendix 3 naming specific
 under-represented styles; a diverse input produces a correspondingly milder
 version.
 
 ---
+
+## Stage 1a — reporting currency (v0.32 G1.1, required field)
+
+Alongside `fund_name`, `asof` and the holdings table, extract the currency the
+fund reports `total_aum` in, normalised to an **ISO-4217** code (`USD`, `HKD`,
+`EUR`, `JPY`, …). If the factsheet does not state one, write **`currency:
+null`** — do not guess, and **never default to USD**. A bare `$` is ambiguous
+(USD / HKD / SGD / AUD) and a bare `¥` is ambiguous (JPY / CNY); both count as
+unstated. Only USD-reporting funds enter the days-to-liquidate aggregate; the
+rest are excluded and labelled, never FX-converted. See
+`references/crowding_signal.md` §G1.
 
 ## Stage 1a — fund-style inference (shared dependency of A3 and Appendix 3)
 

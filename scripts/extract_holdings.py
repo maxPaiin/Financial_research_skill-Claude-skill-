@@ -1,10 +1,12 @@
 """
-Stage 1 helper: US filtering, ticker normalization, deduplication,
-and PIT snapshot grouping.
+Stage 1 helper: US filtering, ticker normalization, currency normalization,
+deduplication, and PIT snapshot grouping.
 
 Reads holdings.json (written by Claude after parsing each fund PDF)
 and produces:
   - Per-fund scope_summary (US kept, non-US dropped, non-equity dropped)
+  - Per-fund normalised `currency` (ISO-4217 or null) — v0.32 G1.1
+  - Per-fund `thin_us_exposure` flag (20–35% of AUM in US equity) — v0.32 G2
   - unique_universe array with n_funds_holding, weights, avg_weight, etc.
   - pit_snapshot_info for each fund
 
@@ -16,7 +18,9 @@ Input shape (written by Claude at Stage 1a):
       "fund_name": "...",
       "issuer": "...",
       "asof": "YYYY-MM-DD",
-      "currency": "USD",
+      "currency": "USD",          <- REQUIRED (v0.32 G1.1); null if the
+                                     factsheet does not state one. NEVER
+                                     defaulted to USD.
       "total_aum": 12345678901.0,
       "holdings": [
         {"ticker_raw": "AAPL", "name": "...", "weight": 0.0723, "isin": "US..."}
@@ -68,6 +72,67 @@ _NON_EQUITY_RE = re.compile(
 _MIN_HOLDINGS = 5
 # Minimum weight fraction of total AUM to keep a fund.
 _MIN_AUM_WEIGHT = 0.20
+# v0.32 G2: upper edge of the "thin US exposure" band. A fund between
+# _MIN_AUM_WEIGHT and this value passes the viability gate but its US sleeve is
+# marginal — so its vote in the consensus signal rests on very little. Flagged,
+# never rejected and never down-weighted (that would change C, which is locked).
+_THIN_US_WEIGHT_MAX = 0.35
+
+# --- v0.32 G1: reporting-currency normalisation ------------------------------
+# `currency` is a REQUIRED Stage 1a field. It is normalised to an ISO-4217 code
+# here; anything that cannot be resolved unambiguously becomes None, which the
+# aggregation step treats exactly like a non-USD currency (excluded, never
+# converted). Defaulting to USD is precisely the silent assumption v0.32 removes.
+_ISO4217_RE = re.compile(r"^[A-Z]{3}$")
+
+# Only unambiguous spellings are mapped. A bare "$" could be USD, HKD, SGD or
+# AUD, and "¥" could be JPY or CNY — those resolve to None, not to a guess.
+_AMBIGUOUS_CURRENCY_TOKENS = {"$", "¥", "￥", "元"}
+
+_CURRENCY_ALIASES = {
+    "US$": "USD", "USD$": "USD", "US DOLLAR": "USD", "US DOLLARS": "USD",
+    "UNITED STATES DOLLAR": "USD",
+    "HK$": "HKD", "HKD$": "HKD", "HONG KONG DOLLAR": "HKD",
+    "HONG KONG DOLLARS": "HKD",
+    "EURO": "EUR", "EUROS": "EUR", "€": "EUR",
+    "£": "GBP", "STERLING": "GBP", "POUND STERLING": "GBP",
+    "RMB": "CNY", "RENMINBI": "CNY",
+}
+
+
+def normalize_currency(raw) -> str | None:
+    """Normalise a reported currency to an ISO-4217 code, or None (G1.1).
+
+    None means "not stated / not resolvable". It is NEVER a synonym for USD:
+    downstream, None and a non-USD code follow the same path (excluded from the
+    exit-liquidity aggregate). No FX conversion exists anywhere in this codebase
+    by design — see references/crowding_signal.md.
+    """
+    if raw is None:
+        return None
+    s = str(raw).strip().upper()
+    if not s:
+        return None
+    if s in _AMBIGUOUS_CURRENCY_TOKENS:
+        return None
+    # "U.S. DOLLAR" -> "US DOLLAR"; "U.S.D" -> "USD"
+    key = " ".join(s.replace(".", "").split())
+    if key in _AMBIGUOUS_CURRENCY_TOKENS:
+        return None
+    if s in _CURRENCY_ALIASES:
+        return _CURRENCY_ALIASES[s]
+    if key in _CURRENCY_ALIASES:
+        return _CURRENCY_ALIASES[key]
+    if _ISO4217_RE.match(key):
+        return key
+    return None
+
+
+def is_thin_us_exposure(weight_kept: float | None) -> bool:
+    """v0.32 G2: accepted fund whose US sleeve sits just above the viability line."""
+    if not isinstance(weight_kept, (int, float)):
+        return False
+    return _MIN_AUM_WEIGHT <= float(weight_kept) <= _THIN_US_WEIGHT_MAX
 
 
 def is_non_equity(h: dict) -> bool:
@@ -243,6 +308,15 @@ def main():
         kept, scope = filter_fund_holdings(fund)
         fund["scope_summary"] = scope
 
+        # G1.1: normalise the reporting currency before anything reads it. The
+        # raw string is preserved so the Layer 1 table can show what the
+        # factsheet actually said when it did not resolve.
+        raw_currency = fund.get("currency")
+        normalized_currency = normalize_currency(raw_currency)
+        if raw_currency is not None and raw_currency != normalized_currency:
+            fund["currency_raw"] = raw_currency
+        fund["currency"] = normalized_currency
+
         viable, reason = check_fund_viability(fund, kept, fund.get("total_aum"))
         if not viable:
             fund["rejected"] = True
@@ -252,6 +326,29 @@ def main():
         else:
             fund["rejected"] = False
             fund["holdings_us"] = kept
+            # G2: warn on a marginal pass. Advisory only — the fund is accepted
+            # in full and its consensus contribution is untouched.
+            fund["thin_us_exposure"] = is_thin_us_exposure(scope.get("weight_kept"))
+            if fund["thin_us_exposure"]:
+                print(
+                    f"THIN US EXPOSURE {fund['fund_id']} ({fund.get('fund_name')}): "
+                    f"US equity is {scope.get('weight_kept', 0):.1%} of AUM "
+                    f"({_MIN_AUM_WEIGHT:.0%}–{_THIN_US_WEIGHT_MAX:.0%} band) — accepted, "
+                    "but its consensus vote rests on a marginal US sleeve.",
+                    file=sys.stderr,
+                )
+            if normalized_currency != "USD":
+                stated = (
+                    f"reports AUM in {normalized_currency}"
+                    if normalized_currency
+                    else "does not state a reporting currency"
+                )
+                print(
+                    f"NON-USD AUM {fund['fund_id']} ({fund.get('fund_name')}): {stated} "
+                    "— excluded from the days-to-liquidate aggregate (no FX conversion "
+                    "is performed); affected tickers fall back to NAV-only crowding.",
+                    file=sys.stderr,
+                )
             valid_count += 1
 
     if valid_count < 7:
@@ -271,7 +368,11 @@ def main():
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    print(f"Funds accepted: {valid_count} | Rejected: {len(rejected_funds)}")
+    accepted = [f for f in data.get("funds", []) if not f.get("rejected")]
+    n_thin = sum(1 for f in accepted if f.get("thin_us_exposure"))
+    n_non_usd = sum(1 for f in accepted if f.get("currency") != "USD")
+    print(f"Funds accepted: {valid_count} | Rejected: {len(rejected_funds)} "
+          f"| Thin US exposure: {n_thin} | Non-USD/unstated AUM: {n_non_usd}")
     if args.dedupe:
         print(f"Universe: {data.get('universe_size', 0)} unique US-listed tickers")
 

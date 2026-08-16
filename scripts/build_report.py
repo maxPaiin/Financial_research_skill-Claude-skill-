@@ -23,10 +23,12 @@ PDF section order (v0.3, §3.4):
   3.  Honest framing (incl. single HK-bias statement, homogeneity warning,
       stratification-abandoned note, source-selection-method disclosure)
   4.  Executive summary
-  5.  Layer 1: Extraction summary (per-fund style labels)
+  5.  Layer 1: Extraction summary — opens with the v0.32 consolidated input
+      review (currency per fund, thin-US-exposure flags, Stage 0 advisories,
+      rejections, style distribution)
   6.  Layer 2: Overlap matrix
   7.  Layer 2: Quality screen results
-  8.  Layer 2: Data quality summary + homogeneity state
+  8.  Layer 2: Data quality summary + currency exclusions + homogeneity state
   9.  Layer 3: Ranked watchlist (bias note NOT repeated; high-crowding warning
       kept; crowding labelled liquidity-inclusive / NAV-only)
   10. Layer 3: Tier groupings (v0.31 — tiers may be demoted by the coherence
@@ -35,7 +37,7 @@ PDF section order (v0.3, §3.4):
   11. Appendix 1+2: per-stock best/avg/worst scenarios + macro/sector drivers
   12. Appendix 3: over-consensus & false-theme warning + fund-style remediation
   13. Methodology disclosure (confidence-shrinkage, days-to-liquidate, gate,
-      v0.31 coherence overlay + its limitations)
+      v0.31 coherence overlay + its limitations, v0.32 currency-exclusion rule)
   14. Disclaimer (back)
 
 All Layer 3 content — including the overlay's tier demotions and per-card

@@ -13,6 +13,7 @@ review and ensure subsequent edits don't regress the fixes.
 from __future__ import annotations
 
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -578,9 +579,10 @@ class TestLayer3Slice(unittest.TestCase):
 class TestCheckpointGate(unittest.TestCase):
     def _seed(self, work: Path):
         (work / "layer1_extraction.md").write_text(
-            "# Layer 1\n## Input\n## Per-fund extraction\n")
+            "# Layer 1\n## Input review\n## Per-fund extraction\n")
         (work / "layer2_screening.md").write_text(
-            "## Quality screen results\n## Input-set style homogeneity\n")
+            "## Quality screen results\n## Input-set style homogeneity\n"
+            "## Reporting currency and the exit-liquidity aggregate\n")
         (work / "layer3_ranked_advice.md").write_text(
             "## Methodology disclosure\nConfidence-shrinkage\nexit-crowdedness\n")
 
@@ -935,9 +937,10 @@ class TestCoherenceGate(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             work = Path(tmp)
             (work / "layer1_extraction.md").write_text(
-                "# Layer 1\n## Input\n## Per-fund extraction\n")
+                "# Layer 1\n## Input review\n## Per-fund extraction\n")
             (work / "layer2_screening.md").write_text(
-                "## Quality screen results\n## Input-set style homogeneity\n")
+                "## Quality screen results\n## Input-set style homogeneity\n"
+                "## Reporting currency and the exit-liquidity aggregate\n")
             (work / "layer3_ranked_advice.md").write_text(
                 "## Methodology disclosure\nConfidence-shrinkage\nexit-crowdedness\n")
             self.assertTrue(cc.review(work, set())["ok"])
@@ -962,6 +965,389 @@ class TestPassedIndustries(unittest.TestCase):
         self.assertNotIn("energy", census)
         self.assertEqual(census["other"], 1)          # unresolved industry bucket
         self.assertEqual(list(census)[0], "technology")
+
+
+# -----------------------------------------------------------------------------
+# v0.32 G1 — currency integrity: normalisation, the AUM gate, no FX conversion
+# -----------------------------------------------------------------------------
+
+class TestCurrencyNormalization(unittest.TestCase):
+    def setUp(self):
+        from extract_holdings import normalize_currency
+        self.fn = normalize_currency
+
+    def test_iso_codes_pass_through(self):
+        for raw, expected in (("USD", "USD"), ("usd", "USD"), ("  hkd  ", "HKD"),
+                              ("JPY", "JPY"), ("U.S.D", "USD")):
+            with self.subTest(raw=raw):
+                self.assertEqual(self.fn(raw), expected)
+
+    def test_unambiguous_aliases_resolve(self):
+        self.assertEqual(self.fn("US$"), "USD")
+        self.assertEqual(self.fn("U.S. Dollar"), "USD")
+        self.assertEqual(self.fn("HK$"), "HKD")
+        self.assertEqual(self.fn("Euro"), "EUR")
+        self.assertEqual(self.fn("RMB"), "CNY")
+
+    def test_ambiguous_symbols_never_become_usd(self):
+        # A bare "$" could be USD, HKD, SGD or AUD; "¥" could be JPY or CNY.
+        # Guessing here is exactly the silent assumption G1 removes.
+        for raw in ("$", "¥", "￥", "元"):
+            with self.subTest(raw=raw):
+                self.assertIsNone(self.fn(raw))
+
+    def test_absent_or_garbage_is_none_not_usd(self):
+        for raw in (None, "", "   ", "n/a", "not stated"):
+            with self.subTest(raw=raw):
+                self.assertIsNone(self.fn(raw))
+
+
+class TestCurrencyAumGate(unittest.TestCase):
+    @staticmethod
+    def _fund(fund_id, currency, aum=1e9, style="growth", weight_kept=0.60):
+        return {
+            "fund_id": fund_id,
+            "fund_name": f"Fund {fund_id}",
+            "currency": currency,
+            "total_aum": aum,
+            "style": style,
+            "rejected": False,
+            "scope_summary": {"weight_kept": weight_kept},
+        }
+
+    def _holdings(self):
+        return {"funds": [
+            self._fund("F1", "USD"),
+            self._fund("F2", "HKD"),
+            self._fund("F3", None),
+        ]}
+
+    def test_only_usd_funds_enter_the_aum_map(self):
+        from crowding_signal import fund_aum_map
+        aum, report = fund_aum_map(self._holdings())
+        self.assertEqual(set(aum), {"F1"})
+        self.assertEqual(report["n_excluded_for_currency"], 2)
+        self.assertFalse(report["fx_conversion"])
+
+    def test_null_currency_is_treated_exactly_like_non_usd(self):
+        from crowding_signal import fund_aum_map
+        aum, _ = fund_aum_map({"funds": [self._fund("F3", None)]})
+        self.assertEqual(aum, {})
+
+    def test_excluded_funds_still_count_for_style_diversity(self):
+        # G1.2: only the AUM is set aside. Holdings, consensus and style
+        # diversity are unaffected.
+        from crowding_signal import fund_style_map
+        holdings = self._holdings()
+        holdings["funds"][1]["style"] = "value"
+        holdings["funds"][2]["style"] = "income_dividend"
+        styles = fund_style_map(holdings)
+        self.assertEqual(set(styles), {"F1", "F2", "F3"})
+
+    def test_ticker_held_only_by_non_usd_funds_is_nav_only(self):
+        from crowding_signal import compute, fund_aum_map
+        aum, _ = fund_aum_map({"funds": [
+            self._fund("F2", "HKD"), self._fund("F3", None)]})
+        # No holder contributes AUM -> aggregate stays None -> NAV-only.
+        aggregate = sum(aum[f] * 0.05 for f in ("F2", "F3") if f in aum) or None
+        r = compute("X", n_funds_holding=2, avg_weight=0.05,
+                    adv_usd=5e7, aggregate_position_usd=aggregate)
+        self.assertEqual(r.crowding_label, "NAV-only")
+        self.assertIsNone(r.days_to_liquidate)
+
+    def test_usd_fund_without_aum_is_not_a_currency_exclusion(self):
+        from crowding_signal import fund_aum_map
+        _, report = fund_aum_map({"funds": [self._fund("F1", "USD", aum=None)]})
+        self.assertEqual(report["n_excluded_for_currency"], 0)
+        self.assertEqual(report["n_usd_missing_aum"], 1)
+
+    def test_currency_census_labels_unstated(self):
+        from crowding_signal import fund_aum_map
+        _, report = fund_aum_map(self._holdings())
+        self.assertEqual(report["by_currency"]["USD"], 1)
+        self.assertEqual(report["by_currency"]["HKD"], 1)
+        self.assertEqual(report["by_currency"]["unstated"], 1)
+
+
+class TestNoFxConversion(unittest.TestCase):
+    """G1.3 / acceptance #4: no FX conversion may exist anywhere."""
+
+    _BANNED = re.compile(
+        r"fx_rate|exchange_rate|currency_rate|convert_currency|to_usd\(|usd_rate",
+        re.IGNORECASE,
+    )
+
+    def test_no_conversion_machinery_in_scripts(self):
+        offenders = []
+        for path in sorted((_REPO_ROOT / "scripts").rglob("*.py")):
+            if self._BANNED.search(path.read_text(encoding="utf-8")):
+                offenders.append(path.name)
+        self.assertEqual(
+            offenders, [],
+            "v0.32 G1.3 excludes non-USD AUM rather than converting it; "
+            f"FX-conversion machinery found in: {offenders}",
+        )
+
+
+# -----------------------------------------------------------------------------
+# v0.32 G2 — thin-US-exposure flag: warn, never re-weight
+# -----------------------------------------------------------------------------
+
+class TestThinUsExposure(unittest.TestCase):
+    def test_band_edges(self):
+        from extract_holdings import is_thin_us_exposure
+        self.assertTrue(is_thin_us_exposure(0.21))
+        self.assertTrue(is_thin_us_exposure(0.20))    # exactly at the viability line
+        self.assertTrue(is_thin_us_exposure(0.35))
+        self.assertFalse(is_thin_us_exposure(0.36))
+        self.assertFalse(is_thin_us_exposure(0.60))
+        self.assertFalse(is_thin_us_exposure(0.19))   # would have been rejected
+        self.assertFalse(is_thin_us_exposure(None))
+
+    def test_marginal_fund_is_accepted_and_flagged(self):
+        from extract_holdings import (
+            check_fund_viability, filter_fund_holdings, is_thin_us_exposure,
+        )
+        fund = {
+            "fund_id": "F1",
+            "total_aum": 1e9,
+            "holdings": [
+                {"ticker_raw": t, "name": f"{t} Inc", "weight": 0.042}
+                for t in ("AAPL", "MSFT", "NVDA", "AMZN", "META")
+            ],
+        }
+        kept, scope = filter_fund_holdings(fund)
+        viable, reason = check_fund_viability(fund, kept, fund["total_aum"])
+        self.assertTrue(viable, reason)                        # 21% clears the gate
+        self.assertTrue(is_thin_us_exposure(scope["weight_kept"]))
+
+    def test_flag_does_not_change_the_consensus_contribution(self):
+        # G2 warns instead of down-weighting: C's definition is locked.
+        from crowding_signal import compute, thin_exposure_report
+        base = compute("X", 5, 0.03, holder_styles=["growth", "value"])
+        report = thin_exposure_report({"funds": [{
+            "fund_id": "F1", "fund_name": "Thin Global", "rejected": False,
+            "thin_us_exposure": True, "scope_summary": {"weight_kept": 0.21},
+        }]})
+        after = compute("X", 5, 0.03, holder_styles=["growth", "value"])
+        self.assertEqual(report["n_thin"], 1)
+        self.assertEqual(base.consensus_weighted, after.consensus_weighted)
+        self.assertEqual(base.signal, after.signal)
+
+    def test_report_is_empty_when_no_fund_is_thin(self):
+        from crowding_signal import thin_exposure_report
+        report = thin_exposure_report({"funds": [{
+            "fund_id": "F1", "rejected": False, "thin_us_exposure": False,
+            "scope_summary": {"weight_kept": 0.60},
+        }]})
+        self.assertEqual(report["n_thin"], 0)
+        self.assertEqual(report["funds"], [])
+
+
+# -----------------------------------------------------------------------------
+# v0.32 G3 — Stage 0 regional advisory: advisory, never blocking
+# -----------------------------------------------------------------------------
+
+class TestRegionalAdvisory(unittest.TestCase):
+    def test_regional_titles_match(self):
+        from validate_uploads import regional_markers
+        for title in ("Asia Pacific Equity Fund", "Asian Equity Fund",
+                      "European Growth Fund", "Japan Small Cap Fund",
+                      "Greater China Opportunities", "Emerging Markets Equity",
+                      "Latin America Fund", "India Equity Fund",
+                      "ASEAN Leaders Fund", "亞洲股票基金"):
+            with self.subTest(title=title):
+                self.assertTrue(regional_markers(title), title)
+
+    def test_global_titles_do_not_match(self):
+        from validate_uploads import regional_markers
+        for title in ("Global Equity Fund", "World Technology Fund",
+                      "US Large Cap Growth Fund", "International Value Fund",
+                      ""):
+            with self.subTest(title=title):
+                self.assertEqual(regional_markers(title), [])
+
+    def test_em_only_as_standalone_uppercase_token(self):
+        from validate_uploads import regional_markers
+        self.assertIn("EM", regional_markers("EM Equity Fund"))
+        self.assertEqual(regional_markers("Themes and systems fund"), [])
+
+    def test_country_breakdown_line_does_not_trigger_an_advisory(self):
+        # The regression that makes this advisory worth having: nearly every
+        # global factsheet carries a geographic-exposure line on page one, so a
+        # looser scan fires on every upload and the advisory becomes noise.
+        from validate_uploads import _title_text, regional_markers
+        page = (
+            "Global Equity Fund\n"
+            "Factsheet as of 31 March 2026\n"
+            "Top 10 holdings\n"
+            "Asia ex-Japan exposure: 4%   Europe: 11%   Japan: 3%\n"
+        )
+        self.assertEqual(regional_markers(_title_text(page)), [])
+
+    def test_regional_title_still_found_alongside_a_breakdown_line(self):
+        from validate_uploads import _title_text, regional_markers
+        page = (
+            "Asia Pacific Equity Fund\n"
+            "Factsheet as of 31 March 2026\n"
+            "United States: 4%   Japan: 33%\n"
+        )
+        self.assertEqual(regional_markers(_title_text(page)), ["asia", "pacific"])
+
+    def test_title_falls_back_to_the_first_line_when_untitled(self):
+        from validate_uploads import _title_text
+        self.assertEqual(_title_text("Japan Opportunities\nrow 1\n"),
+                         "Japan Opportunities")
+        self.assertEqual(_title_text(""), "")
+
+    def test_advisory_names_the_file_and_is_not_a_rejection(self):
+        from validate_uploads import regional_advisory
+        msg = regional_advisory("asia_fund.pdf", ["asian"])
+        self.assertIn("asia_fund.pdf", msg)
+        self.assertIn("advisory only", msg)
+        self.assertIn("Stage 1c", msg)
+
+    def test_advisories_never_enter_errors_or_change_ok(self):
+        # Exit code / file-count logic must be untouched (G3 acceptance #2).
+        from validate_uploads import validate
+        with tempfile.TemporaryDirectory() as tmp:
+            res = validate(Path(tmp), email="ops@example.com")
+            self.assertEqual(res["advisories"], [])
+            # Empty dir still fails on the file-count check alone.
+            self.assertFalse(res["ok"])
+            self.assertTrue(all("ADVISORY" not in e for e in res["errors"]))
+
+
+# -----------------------------------------------------------------------------
+# v0.32 G4 — consolidated input-review block in layer1_extraction.md
+# -----------------------------------------------------------------------------
+
+class TestInputReviewBlock(unittest.TestCase):
+    def _holdings(self):
+        return {
+            "funds": [
+                {"fund_id": "F1", "fund_name": "USD Global", "issuer": "X",
+                 "asof": "2026-03-31", "currency": "USD", "total_aum": 1e9,
+                 "style": "growth", "rejected": False, "thin_us_exposure": False,
+                 "scope_summary": {"weight_kept": 0.62,
+                                   "n_holdings_kept_us_equity": 12}},
+                {"fund_id": "F2", "fund_name": "HKD Share Class", "issuer": "Y",
+                 "asof": "2026-03-31", "currency": "HKD", "total_aum": 8e9,
+                 "style": "value", "rejected": False, "thin_us_exposure": True,
+                 "scope_summary": {"weight_kept": 0.21,
+                                   "n_holdings_kept_us_equity": 5}},
+                {"fund_id": "F3", "fund_name": "Rejected Asia", "rejected": True,
+                 "rejection_reason": "Only 2 US equity holdings extracted"},
+            ],
+            "unique_universe": [],
+            "pit_snapshot_info": [],
+        }
+
+    def test_block_carries_every_finding(self):
+        from layer1_report import build_layer1_md
+        md = build_layer1_md(self._holdings(), {
+            "advisories": ["ADVISORY — 'asia.pdf': the title mentions asian."]})
+        head = md[:md.index("## Per-fund extraction")]
+        self.assertIn("## Input review", head)
+        self.assertIn("Rejected Asia", head)              # rejections
+        self.assertIn("HKD", head)                        # currency census
+        self.assertIn("No FX conversion", head)           # exclusion rationale
+        self.assertIn("20–35%", head)                     # thin exposure
+        self.assertIn("asia.pdf", head)                   # Stage 0 advisory
+        self.assertIn("Style distribution", head)         # A3 state
+
+    def test_per_fund_table_shows_currency_and_flags(self):
+        from layer1_report import build_layer1_md
+        md = build_layer1_md(self._holdings())
+        table = md[md.index("## Per-fund extraction"):]
+        self.assertIn("| Currency |", table)
+        self.assertIn("thin US exposure", table)
+        self.assertIn("non-USD", table)
+
+    def test_all_usd_input_reports_no_exclusions(self):
+        from layer1_report import build_layer1_md
+        data = self._holdings()
+        data["funds"][1]["currency"] = "USD"
+        data["funds"][1]["thin_us_exposure"] = False
+        md = build_layer1_md(data)
+        self.assertIn("All accepted funds report AUM in USD", md)
+        self.assertIn("No accepted fund is thin", md)
+
+    def test_advisory_section_omitted_without_stage0_input(self):
+        from layer1_report import build_layer1_md
+        md = build_layer1_md(self._holdings())
+        self.assertNotIn("Stage 0 regional advisories", md)
+
+    def test_unstated_currency_is_shown_as_unstated(self):
+        from layer1_report import build_layer1_md
+        data = self._holdings()
+        data["funds"][0]["currency"] = None
+        data["funds"][0]["currency_raw"] = "$"
+        md = build_layer1_md(data)
+        self.assertIn("unstated", md)
+        # It must never be displayed or counted as USD.
+        self.assertNotIn("All accepted funds report AUM in USD", md)
+
+
+# -----------------------------------------------------------------------------
+# v0.32 — layer2 reproduces the input-review findings (G1.4 / G2)
+# -----------------------------------------------------------------------------
+
+class TestLayer2InputReview(unittest.TestCase):
+    CROWDING = {
+        "homogeneity": {"labelled": True, "dominant_style": "growth",
+                        "dominant_share": 0.5, "is_homogeneous": False,
+                        "style_distribution": {"growth": 1, "value": 1},
+                        "n_funds": 2},
+        "input_review": {
+            "currency": {"n_funds": 2, "by_currency": {"USD": 1, "HKD": 1},
+                         "n_usd_aum_used": 1, "n_excluded_for_currency": 1,
+                         "excluded_funds": [{"fund_id": "F2", "currency": "HKD"}],
+                         "n_usd_missing_aum": 0, "fx_conversion": False},
+            "thin_us_exposure": {"n_funds": 2, "n_thin": 1, "share_thin": 0.5,
+                                 "band": [0.20, 0.35],
+                                 "funds": [{"fund_id": "F2", "weight_kept": 0.21}]},
+        },
+        "signals": [{"ticker": "AAA", "signal": 1.0, "crowding_label": "NAV-only",
+                     "is_high_crowding": False}],
+    }
+
+    def _md(self, crowding):
+        from layer2_report import build_layer2_md
+        return build_layer2_md(
+            {"n_tickers": 1, "overlap": []},
+            {"results": [], "unscored": []},
+            {},
+            crowding,
+        )
+
+    def test_currency_exclusion_is_stated(self):
+        md = self._md(self.CROWDING)
+        self.assertIn("## Reporting currency and the exit-liquidity aggregate", md)
+        self.assertIn("1 fund(s) excluded", md)
+        self.assertIn("F2 (HKD)", md)
+        self.assertIn("no FX conversion exists", md)
+
+    def test_thin_count_is_stated(self):
+        md = self._md(self.CROWDING)
+        self.assertIn("THIN US EXPOSURE", md)
+        self.assertIn("F2 (21%)", md)
+
+    def test_all_usd_run_says_so_rather_than_printing_empty(self):
+        import copy
+        crowding = copy.deepcopy(self.CROWDING)
+        crowding["input_review"]["currency"].update(
+            by_currency={"USD": 2}, n_excluded_for_currency=0, excluded_funds=[])
+        crowding["input_review"]["thin_us_exposure"].update(n_thin=0, funds=[])
+        md = self._md(crowding)
+        self.assertIn("No fund was excluded from the exit-liquidity aggregate", md)
+        self.assertIn("no accepted fund is thin", md)
+
+    def test_missing_input_review_degrades_cleanly(self):
+        # A crowding file written before v0.32 must not crash the report.
+        crowding = {k: v for k, v in self.CROWDING.items() if k != "input_review"}
+        md = self._md(crowding)
+        self.assertIn("Fund AUM was not supplied to this stage", md)
 
 
 if __name__ == "__main__":

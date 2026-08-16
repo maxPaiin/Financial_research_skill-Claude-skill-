@@ -1,5 +1,11 @@
 """
 Stage 2g: Generate layer2_screening.md from overlap, screen, and fundamental data.
+
+v0.32 additionally reproduces two input-review findings from
+`crowding_signals.json`'s `input_review` block, next to the signal each one
+qualifies: how many funds were excluded from the exit-liquidity aggregate for
+currency reasons (G1.4), and how many accepted funds have thin US exposure
+(G2). Both are disclosure only — no number in this file changes because of them.
 """
 
 import json
@@ -113,6 +119,39 @@ def build_layer2_md(
                   "pure-weight discount)"]
         lines += [""]
 
+    # G1.4: state the currency exclusions where the crowding labels are shown —
+    # a NAV-only label is otherwise indistinguishable from missing market data.
+    review = crowding.get("input_review", {}) or {}
+    currency = review.get("currency", {}) or {}
+    lines += ["## Reporting currency and the exit-liquidity aggregate", ""]
+    by_currency = currency.get("by_currency") or {}
+    if by_currency:
+        lines += ["- Reporting currency of accepted funds: "
+                  + ", ".join(f"{k}: {v}" for k, v in by_currency.items())]
+    n_excluded = currency.get("n_excluded_for_currency", 0)
+    if n_excluded:
+        excluded_names = ", ".join(
+            f"{f.get('fund_id')} ({f.get('currency') or 'unstated'})"
+            for f in currency.get("excluded_funds", [])
+        )
+        lines += [
+            f"- ⚠ {n_excluded} fund(s) excluded from the days-to-liquidate aggregate "
+            f"because their AUM is not reported in USD: {excluded_names}.",
+            "- Average daily traded value is always USD, so admitting a non-USD AUM "
+            "would overstate days-to-liquidate by roughly the exchange rate. Those "
+            "funds are excluded rather than converted — **no FX conversion exists in "
+            "this pipeline** — and their holdings still count in full toward overlap, "
+            "consensus and style diversity. Stocks held only by excluded funds are "
+            "labelled NAV-only above.",
+        ]
+    elif by_currency:
+        lines += ["- No fund was excluded from the exit-liquidity aggregate for "
+                  "currency reasons; every accepted fund reports AUM in USD."]
+    else:
+        lines += ["- Fund AUM was not supplied to this stage, so no exit-liquidity "
+                  "aggregate was built; all crowding figures are NAV-only."]
+    lines += [""]
+
     # A3: input-set style homogeneity state (v0.3).
     homo = crowding.get("homogeneity", {})
     lines += ["## Input-set style homogeneity (consensus informativeness)", ""]
@@ -134,6 +173,25 @@ def build_layer2_md(
         else:
             lines += ["- Input spans multiple styles; cross-style agreement is "
                       "treated as more informative than within-style agreement."]
+
+    # G2: the same false-consensus problem seen from the exposure angle. Reported
+    # next to the style state because both qualify the SAME signal.
+    thin = review.get("thin_us_exposure", {}) or {}
+    n_thin = thin.get("n_thin", 0)
+    if n_thin:
+        thin_names = ", ".join(
+            f"{f.get('fund_id')} ({(f.get('weight_kept') or 0):.0%})"
+            for f in thin.get("funds", [])
+        )
+        lines += [
+            f"- ⚠ THIN US EXPOSURE — {n_thin} of {thin.get('n_funds', 0)} accepted "
+            f"fund(s) hold only 20–35% of AUM in US equity: {thin_names}. Their "
+            "consensus contribution is unchanged (the signal counts funds, not "
+            "exposure), so consensus in this run partly rests on marginal US sleeves.",
+        ]
+    elif thin:
+        lines += ["- US-exposure depth: no accepted fund is thin "
+                  "(all above 35% US-equity weight)."]
     lines += [""]
 
     lines += ["## Next layer", ""]

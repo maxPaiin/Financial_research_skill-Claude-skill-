@@ -1,8 +1,40 @@
 > **Trigger keyword:** `/claude_skill_Financial_research`
 
-# Financial Research Skill v0.31
+# Financial Research Skill v0.32
 
-> **v0.31 (current) — the coherence overlay.** A bolt-on that asks one question per ranked
+> **v0.32 (current) — a defect patch, not a feature iteration.** It closes a currency-unit
+> hole that v0.3's days-to-liquidate metric silently opened, and adds two input-review
+> warnings the existing gates do not produce. It is kept as a separate version line so a
+> reader can tell which changes *added* behaviour and which *corrected* it.
+> - **`currency` is now a required Stage 1a field**, normalised to ISO-4217, and **`null`
+>   when the factsheet does not state one — never defaulted to USD.** A bare `$` is
+>   ambiguous (USD/HKD/SGD/AUD) and counts as unstated.
+> - **Only USD-reporting funds enter the days-to-liquidate aggregate.** ADV is always USD,
+>   so an HKD-reported AUM overstated days-to-liquidate by ~7.8× — silently, with no error
+>   and no flag. That matters disproportionately here: the target input is the **Hong Kong
+>   distribution channel**, where HKD-denominated share classes are routine.
+> - **Excluded, never converted.** FX conversion would need a rate source, a rate-date policy
+>   and a new provenance path — three new failure modes to repair a metric that already has
+>   a well-defined NAV-only fallback. **No FX conversion exists anywhere in the codebase.**
+>   An excluded fund still counts in full toward overlap, consensus and style diversity;
+>   only its AUM is set aside, and tickers held solely by such funds show NAV-only crowding.
+> - **Thin-US-exposure warning.** A global fund with 5 US holdings at 21% of AUM passes the
+>   viability gate, then votes in the consensus signal exactly as loudly as a 95%-US fund —
+>   `n_funds_holding` counts funds, not exposure. Funds at 20–35% are flagged in Layer 1,
+>   Layer 2 and Appendix 3 and are deliberately **not** down-weighted: re-weighting would
+>   alter `C`, whose definition is locked. A defect patch corrects; it does not redefine a signal.
+> - **Stage 0 regional advisory.** A regional fund is otherwise rejected only at Stage 1c —
+>   *after* the most expensive step in the pipeline. A title match now raises an advisory up
+>   front. **Non-blocking by design**: a keyword is not evidence, Stage 1c remains the sole
+>   authority on rejection, and a false advisory costs one sentence while a false rejection
+>   would discard a valid input.
+> - **One consolidated input review** at the top of `layer1_extraction.md`, so the user sees a
+>   single review of what they submitted rather than warnings scattered across sections.
+> - **Unchanged:** composite weights (50/50), `Q''`, `C`, rank order, viability thresholds
+>   (≥5 holdings, ≥20% weight), Stage 0 blocking behaviour, and the entire v0.31 overlay. On
+>   an all-USD input set the numeric output is bit-for-bit identical to v0.31.
+
+> **v0.31 — the coherence overlay.** A bolt-on that asks one question per ranked
 > stock: do the **macro read**, the **sector operating logic**, and the **sector-relative price
 > action** tell the same story? Where they contradict each other, the stock's picture is
 > incoherent — and in this tool incoherence is uncertainty, which is treated as a quality
@@ -95,6 +127,7 @@ Given **7–11 HKMA-approved global fund prospectus PDFs**, the skill runs a thr
 2. **Layer 2 — Overlap & Screen**: builds a cross-fund overlap matrix, fetches fundamentals from SEC EDGAR (true PIT) with yfinance fallback, applies a quality screen (PASS/FAIL), computes a fundamental quality percentile score, and computes the v0.3 consensus signal (style-diversity-weighted, with an exit-liquidity / days-to-liquidate crowding discount).
 3. **Layer 3 — Ranking & Advice**: composite-ranks the passed universe (fixed 50/50; the quality half is low-anchor confidence-shrunk), selects the top 15 stocks, organizes them into Tier A/B/C, and generates per-stock rationale cards with honest framing (HK-bias stated once).
 4. **Coherence overlay (v0.31)**: audits each ranked stock for agreement between the macro read, the sector operating logic and sector-ETF relative strength, and **demotes** — never promotes — the display tier by at most one level where they contradict, naming the contradiction on the card. Writes a side-car `coherence.json`; `rankings.json` is read-only to it.
+4b. **Input review (v0.32)**: reports what the submitted set actually is — reporting currency per fund and which funds that excludes from the exit-liquidity aggregate, funds whose US sleeve is thin, Stage 0 regional advisories, rejections, and the style distribution — as one block rather than warnings scattered across sections.
 5. **Macro appendices (v0.3)**: central-bank-anchored macro/sector view, per-stock best/avg/worst scenarios, and an over-consensus / fund-style remediation appendix — all under a hard ≥2-primary-tier source-corroboration gate.
 
 **Output**: the layered `.md` checkpoints, the `coherence.json` audit trail, and a single English-only PDF report, all copied to the user-visible outputs directory.
@@ -110,6 +143,8 @@ Given **7–11 HKMA-approved global fund prospectus PDFs**, the skill runs a thr
 - **Not a three-strategies tool.** One ranking, three display tiers.
 - **Not a macro forecaster (v0.31).** The macro readings are directional summaries of central-bank material, not predictions, and the coherence verdict is a qualitative judgment — deliberately unweighted, with no calibrated model behind it.
 - **Not a price-confirmation tool (v0.31).** ETF relative strength is context, never confirmation; sector ETFs carry their own crowding. The overlay can only lower confidence in a name, never raise it.
+- **Not a currency converter (v0.32).** Non-USD fund AUM is excluded from the exit-liquidity aggregate and labelled, never FX-converted. Exclusion has one failure mode the report can state; conversion would add three it could not.
+- **Not an exposure-weighted consensus (v0.32).** The consensus counts funds, not US exposure. Funds with a thin US sleeve are flagged, not down-weighted — that would change a locked signal.
 - **Not a supply-chain mapper.** Industry-policy and company-level supplier claims are deliberately out of scope — those relationships are absent from EDGAR's structured data and are the highest fabrication risk in the design.
 
 ---
@@ -130,6 +165,7 @@ Every uploaded PDF is checked before any LLM parsing begins:
 | Extractable text | The first 10 pages combined must yield non-empty text. Image-only scans fail here.                                                                                                                                                                              |
 | Holdings keyword | Each PDF must contain at least one of:`holdings`, `portfolio`, `top holdings`, `portfolio composition`. Bilingual HK factsheets often include Chinese equivalents as well — the validator accepts those too; see `validate_uploads.py` for the canonical list. |
 | Reporting date   | Each PDF must contain a recognizable date. Supported formats include`2025-03-31`, `31/03/2025`, `Q1 2025`, `FY 2024`, `H1 2025`, `March 31, 2025`, `31 March 2025`, `March 2025`.                                                                               |
+| Regional advisory (v0.32) | **Not a check.** If the fund's *title* names a region (Asia, Europe, Japan, China, EM, Latin America, India, ASEAN, or a bilingual equivalent), Stage 0 prints an advisory naming the file — that fund may hold fewer than 5 US-listed equities and be rejected at Stage 1c, after the expensive parse. It does **not** halt, reject, or change the exit code or file count. Matching is restricted to the title (percentage-bearing lines are ignored) so a global fund's country-breakdown table does not trip it. |
 
 ### Level 2 — Per-fund content (Stage 1a, LLM extraction)
 
@@ -141,6 +177,7 @@ Claude reads each PDF and writes one record per fund into `holdings.json`. For t
 | Fund name               | yes         | Identifies the fund in every downstream report.                                              |
 | Issuer                  | recommended | Shown in Layer 1 / 2 summaries.                                                              |
 | Reporting date (`asof`) | yes         | Per-fund snapshot date; appears in Layer 1 and PIT tracking.                                 |
+| **Reporting currency**  | **yes (v0.32)** | ISO-4217 code for `total_aum` (`USD`, `HKD`, `EUR`, `JPY`, …). **`null` if the factsheet does not state one — never defaulted to USD**; a bare `$` is ambiguous and counts as unstated. Only USD-reporting funds enter the days-to-liquidate aggregate; the rest are excluded (never FX-converted) and their tickers fall back to NAV-only crowding. |
 | Total AUM               | recommended | Activates the "US holdings ≥ 20% of AUM" viability check; without AUM the check is skipped. |
 | Holdings table          | yes         | The core data feeding every downstream stage.                                                |
 
@@ -162,6 +199,13 @@ After Stage 1a, each fund's holdings are filtered to US-listed equities (ADRs in
 | US equity weight | If AUM was extracted, the kept holdings must sum to ≥**20%** of AUM. |
 
 Funds that fail are rejected, but the run continues — **as long as at least 7 funds survive**. If post-rejection count drops below 7, the pipeline halts with a message naming the failed PDFs.
+
+**Marginal passes are flagged, not rejected (v0.32).** A fund whose US equity lands between
+**20% and 35%** of AUM clears the gate but carries a `thin_us_exposure` flag: its consensus
+vote counts exactly as much as a 95%-US fund's, because the signal counts funds rather than
+exposure. The thresholds above are unchanged and the vote is **not** down-weighted — the flag
+is surfaced in Layer 1, Layer 2 and Appendix 3 so the reader can discount the consensus
+themselves.
 
 ### Examples
 
@@ -241,14 +285,15 @@ report. If removing it breaks anything downstream or changes a rank, the impleme
 ├── references/                       # Methodology readers (no executable code)
 │   ├── methodology.md                # What the skill does and does not do
 │   ├── quality_screen.md             # Screen criteria and rationale
-│   ├── crowding_signal.md            # Signal formula (A2 days-to-liquidate, A3 diversity)
+│   ├── crowding_signal.md            # Signal formula (A2 days-to-liquidate, A3 diversity,
+│   │                                 #   v0.32 G1 currency gate, G2 thin-exposure warning)
 │   ├── providers.md                  # Provider routing, EDGAR contract (B1 email), confidence
 │   ├── honest_framing.md             # Framing template for Layer 3 (bias stated once)
 │   ├── macro_appendix.md             # v0.3 macro/expectations appendices + source gate
 │   └── coherence_overlay.md          # v0.31 overlay: inputs, verdicts, invariants, deferrals
 ├── scripts/                          # Deterministic computation (no LLM calls)
-│   ├── validate_uploads.py
-│   ├── extract_holdings.py
+│   ├── validate_uploads.py           # + v0.32 G3 regional advisory (non-blocking)
+│   ├── extract_holdings.py           # + v0.32 currency normalisation + thin-exposure flag
 │   ├── overlap_analysis.py
 │   ├── fetch_fundamentals.py         # Stage 2b: EDGAR + yfinance → fundamentals.json
 │   ├── compute_scores.py
@@ -258,10 +303,10 @@ report. If removing it breaks anything downstream or changes a rank, the impleme
 │   ├── coherence_audit.py            # v0.31 Stage 3a-bis: the overlay → coherence.json
 │   ├── build_report.py
 │   ├── quality_screen.py             # + v0.31 post-screen industry census (M1 scope)
-│   ├── crowding_signal.py            # A2 days-to-liquidate + A3 style-diversity / homogeneity
-│   ├── check_checkpoints.py          # v0.3 D4 gate + v0.31 overlay-invariant checks
-│   ├── layer1_report.py
-│   ├── layer2_report.py
+│   ├── crowding_signal.py            # A2 days-to-liquidate (v0.32: USD-only AUM) + A3 diversity
+│   ├── check_checkpoints.py          # v0.3 D4 gate + v0.31 overlay + v0.32 section checks
+│   ├── layer1_report.py              # v0.32 G4: consolidated input-review block
+│   ├── layer2_report.py              # + currency exclusions + thin-exposure count
 │   ├── layer3_report.py              # Tier grouping applies demotions; rank display unchanged
 │   └── providers/
 │       ├── __init__.py
@@ -297,14 +342,20 @@ This is a Claude skill — upload 7–11 HKMA-approved fund factsheet PDFs and a
 For local development, individual scripts can be run directly:
 
 ```bash
-# Stage 0 — validate (+ SEC email gate)
-python scripts/validate_uploads.py /path/to/uploads --email you@example.com
+# Stage 0 — validate (+ SEC email gate). --out saves the result so Stage 1e can
+# reproduce the v0.32 regional advisories inside the consolidated input review.
+python scripts/validate_uploads.py /path/to/uploads --email you@example.com \
+  --out /home/claude/work/stage0_validation.json
 
-# Stage 1b-d — filter and dedupe (after Claude writes holdings.json at Stage 1a)
+# Stage 1b-d — filter, normalise currency, flag thin US exposure, dedupe
+# (after Claude writes holdings.json at Stage 1a)
 python scripts/extract_holdings.py --input /home/claude/work/holdings.json --dedupe
 
-# Stage 1e — Layer 1 report
-python scripts/layer1_report.py --holdings /home/claude/work/holdings.json
+# Stage 1e — Layer 1 report (--stage0 is optional; without it the advisory
+# subsection is omitted rather than printed empty)
+python scripts/layer1_report.py \
+  --holdings /home/claude/work/holdings.json \
+  --stage0 /home/claude/work/stage0_validation.json
 
 # Stage 2a — overlap matrix
 python scripts/overlap_analysis.py \
@@ -398,8 +449,8 @@ The layered `.md` checkpoints, the overlay's audit trail, and a final English-on
 
 | File                              | Content                                                                      |
 | --------------------------------- | ---------------------------------------------------------------------------- |
-| `layer1_extraction.md`            | Per-fund extraction summary (with style labels), universe size, out-of-scope |
-| `layer2_screening.md`             | Overlap matrix, quality screen, data quality, liquidity labels + homogeneity |
+| `layer1_extraction.md`            | v0.32 — opens with the consolidated **input review** (rejections, reporting currency per fund + exit-liquidity exclusions, thin-US-exposure flags, Stage 0 advisories, style distribution), then per-fund extraction, universe size, out-of-scope |
+| `layer2_screening.md`             | Overlap matrix, quality screen, data quality, liquidity labels + currency exclusions + homogeneity + thin-exposure count |
 | `layer3_ranked_advice.md`         | Honest framing (bias once), top-15 watchlist cards, methodology disclosure   |
 | `macro_checkpoint.md`             | v0.3 — central-bank-anchored macro/sector view, per-sentence attribution     |
 | `expectations_checkpoint.md`      | v0.3 — per-stock best/avg/worst scenarios driven by the macro view           |
@@ -418,7 +469,7 @@ itself is what gets shipped.
 
 ---
 
-## Key design decisions (v1 → v0.2 → v0.3 → v0.31)
+## Key design decisions (v1 → v0.2 → v0.3 → v0.31 → v0.32)
 
 
 | Decision        | v1                                                   | v0.2                                                 | v0.3                                                              | v0.31                                                        |
@@ -435,6 +486,17 @@ itself is what gets shipped.
 | Macro position  | n/a                                                  | n/a                                                  | M1 after 3a, scoped to top-15 industries                          | M1 after **2d**, scoped to the **post-screen universe**      |
 | Price signal    | Momentum-ish                                         | none                                                 | none                                                              | Divergence detector only (RS vs SPY, fixed windows)          |
 | EDGAR UA        | n/a                                                  | Hardcoded, no email (would 403)                      | User-supplied contact email, gated at Stage 0 (B1)               | unchanged                                                    |
+
+**v0.32 deltas (defect patch — nothing above changes):**
+
+| Decision | v0.31 | v0.32 |
+| --- | --- | --- |
+| `currency` field | in the schema, never validated or read | **required at Stage 1a**, ISO-4217, `null` when unstated, never defaulted |
+| Non-USD fund AUM | silently summed into a USD-named aggregate | **excluded** from the aggregate; ticker falls back to NAV-only |
+| FX conversion | n/a | **none, deliberately** — exclude and label, never convert |
+| Marginal US exposure (20–35%) | invisible; votes like a 95%-US fund | flagged in Layer 1 / 2 / Appendix 3; **vote unchanged** |
+| Regional fund feedback | only at Stage 1c, after the expensive parse | **Stage 0 advisory**, non-blocking; Stage 1c still decides |
+| Input warnings | scattered across sections | **one consolidated input-review block** |
 
 ---
 
@@ -465,3 +527,6 @@ itself is what gets shipped.
 4. **Sector-ETF proxy error (v0.31)**: an eleven-bucket industry map is coarser than a real sector classification, so a stock can be measured against an ETF that is only approximately its sector — a diversified conglomerate or an unusual ADR most of all. The mapping is deliberately conservative (`other` is left unmapped, producing "insufficient data" instead of a wrong proxy), but a *plausible-but-imprecise* bucket will still be used.
 5. **Uncalibrated overlay bands (v0.31)**: the thresholds separating "outperforming / inline / lagging" (±5pp) and "sharp divergence" (±20pp) are round numbers, not fitted parameters — there is no backtest in this tool to fit them against. They exist to separate decisive moves from noise. This is why the overlay is capped at a single tier and can only demote: a wrong band costs one display tier on one stock, never a re-ordering.
 6. **Structured macro fields are a lossy summary (v0.31)**: collapsing a central-bank corpus into one rate direction and one inflation direction discards nuance by design (regional divergence, forward guidance conditionality). The full narrative stays in `macro_checkpoint.md`; the structured fields exist only to make the coherence comparison mechanical and auditable.
+7. **Reduced exit-liquidity coverage on non-USD input sets (v0.32)**: excluding non-USD AUM is correct but not free — an input set dominated by HKD share classes yields mostly `NAV-only` crowding figures, i.e. the v0.2 pure-weight discount with no days-to-liquidate information. This is a *stated* gap rather than a distorted number, and the exclusion count is reported in Layer 1 and Layer 2, but the exit-crowdedness signal is genuinely weaker on such a run.
+8. **Currency normalisation depends on Stage 1a (v0.32)**: the gate reads the `currency` the LLM extracted. A factsheet that states its reporting currency only in a footnote, a share-class table, or an image the text layer does not carry will come through as `null` and be excluded — the safe direction, but a false exclusion. Only unambiguous spellings are mapped (`US$`, `HK$`, `Euro`, `RMB`); a bare `$` or `¥` resolves to `null` rather than a guess.
+9. **The regional advisory is a title heuristic (v0.32)**: it reads the first few lines of page one, keeping lines that carry a fund-type word and no percentage figure. A factsheet whose title sits in an image, or whose text layer scrambles the first page, produces no advisory; a fund-of-funds row named after a region could produce a spurious one. Neither outcome affects the pipeline — Stage 1c is still the only thing that rejects a fund.

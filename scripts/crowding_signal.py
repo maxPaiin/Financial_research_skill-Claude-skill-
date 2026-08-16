@@ -12,7 +12,7 @@ crowd-following (premise 3 — "consensus is not alpha"):
        The reflexive "everyone exits the same door" risk is position size
        *relative to exit liquidity*, not relative to NAV. We fold a bounded,
        increasing function of days_to_liquidate into the crowding discount:
-         aggregate_position_$ = Σ_funds (fund_AUM × weight_in_fund)
+         aggregate_position_$ = Σ_USD-reporting funds (fund_AUM × weight_in_fund)
          days_to_liquidate    = aggregate_position_$ / ADV_usd
          liq                  = clamp(days_to_liquidate / DTL_FULL, 0, 1)
          crowding_raw'        = crowding_raw × (1 + LIQ_WEIGHT × liq)
@@ -21,6 +21,13 @@ crowd-following (premise 3 — "consensus is not alpha"):
        tool is meant to surface. Each stock is labelled `liquidity-inclusive`
        (the liquidity path produced the figure) or `NAV-only` (fell back to
        the v0.2 pure-weight discount because AUM and/or ADV were missing).
+
+       v0.32 G1 — the numerator must be USD. ADV is always USD, so a fund
+       reporting AUM in HKD or JPY would inflate days_to_liquidate by roughly
+       the FX rate, silently. `fund_aum_map()` therefore admits AUM ONLY from
+       funds whose normalised `currency == "USD"`; non-USD and unstated funds
+       are excluded (never converted) and their tickers fall through the
+       existing NAV-only path. No FX conversion exists in this codebase.
 
   A3 — Style-diversity-weighted consensus.
        A name held by funds spanning several distinct styles is more
@@ -59,6 +66,14 @@ Output schema — crowding_signals.json:
     "is_homogeneous": true,
     "style_distribution": {"growth": 8, "blend": 1},
     "n_funds": 9
+  },
+  "input_review": {                       // v0.32 G4 — disclosure only
+    "currency": {"n_funds": 9, "by_currency": {"USD": 6, "HKD": 2, "unstated": 1},
+                 "n_usd_aum_used": 6, "n_excluded_for_currency": 3,
+                 "excluded_funds": [...], "n_usd_missing_aum": 0,
+                 "fx_conversion": false},
+    "thin_us_exposure": {"n_funds": 9, "n_thin": 1, "share_thin": 0.1111,
+                         "band": [0.20, 0.35], "funds": [...]}
   },
   "signals": [
     {"ticker": "AAPL",
@@ -210,31 +225,118 @@ def compute(
     )
 
 
-def _fund_maps(holdings: dict) -> tuple[dict[str, float], dict[str, str]]:
-    """Build fund_id -> total_aum and fund_id -> style maps from holdings.json.
+def _accepted_funds(holdings: dict) -> list[dict]:
+    return [f for f in holdings.get("funds", []) if not f.get("rejected") and f.get("fund_id")]
 
-    Only non-rejected funds are considered. total_aum is optional (recommended,
-    not required, at extraction); funds without it are simply absent from the
-    AUM map, which downgrades their tickers to NAV-only.
+
+def fund_style_map(holdings: dict) -> dict[str, str]:
+    """fund_id -> coarse style label, over accepted funds only (A3).
+
+    A fund's reporting currency has no bearing here: G1.2 excludes non-USD AUM
+    from the exit-liquidity aggregate only. Such funds still count toward
+    n_funds_holding, weights and style diversity — their holdings are data, it
+    is only their AUM that is in unknown units.
     """
-    aum_by_fund: dict[str, float] = {}
     style_by_fund: dict[str, str] = {}
-    for f in holdings.get("funds", []):
-        if f.get("rejected"):
-            continue
-        fid = f.get("fund_id")
-        if not fid:
-            continue
-        aum = f.get("total_aum")
-        if isinstance(aum, (int, float)) and aum > 0:
-            aum_by_fund[fid] = float(aum)
+    for f in _accepted_funds(holdings):
         style = f.get("style")
         # `style` may be a single label or a list; take the first known label.
         if isinstance(style, list):
             style = next((s for s in style if s in _KNOWN_STYLES), None)
         if isinstance(style, str) and style in _KNOWN_STYLES:
-            style_by_fund[fid] = style
-    return aum_by_fund, style_by_fund
+            style_by_fund[f["fund_id"]] = style
+    return style_by_fund
+
+
+def fund_aum_map(holdings: dict) -> tuple[dict[str, float], dict]:
+    """fund_id -> total_aum for USD reporters only (v0.32 G1.2), + a report.
+
+    INVARIANT — every value in the returned map is denominated in USD. The sum
+    built from it (`aggregate_position_usd`) is therefore USD-true, which is
+    what makes `days_to_liquidate = aggregate_position_usd / adv_usd` a ratio of
+    like units. ADV is always USD; admitting an HKD- or JPY-reported AUM here
+    would overstate days-to-liquidate by roughly the FX rate, silently.
+
+    A fund whose currency is non-USD *or* null is omitted from the map. This
+    needs no new logic downstream: A2 already handles a fund without usable AUM
+    by dropping it from the aggregate, and a ticker left with no usable AUM
+    falls back to `crowding_label = "NAV-only"`. Exclusion — never conversion:
+    FX would require a rate source, a rate-date policy and a new provenance
+    path, three new failure modes to repair a metric that already degrades
+    cleanly (G1.3). **Do not add FX conversion here.**
+    """
+    accepted = _accepted_funds(holdings)
+    aum_by_fund: dict[str, float] = {}
+    by_currency: dict[str, int] = {}
+    excluded: list[dict] = []
+    n_missing_aum = 0
+
+    for f in accepted:
+        fid = f["fund_id"]
+        currency = f.get("currency")
+        label = currency if isinstance(currency, str) and currency else "unstated"
+        by_currency[label] = by_currency.get(label, 0) + 1
+
+        aum = f.get("total_aum")
+        has_aum = isinstance(aum, (int, float)) and not isinstance(aum, bool) and aum > 0
+
+        if currency == "USD":
+            if has_aum:
+                aum_by_fund[fid] = float(aum)
+            else:
+                n_missing_aum += 1
+            continue
+
+        # Non-USD or unstated: excluded from the aggregate, and named so the
+        # exclusion is visible rather than silent (G1.4).
+        if has_aum:
+            excluded.append({
+                "fund_id": fid,
+                "fund_name": f.get("fund_name"),
+                "currency": currency,
+            })
+
+    report = {
+        "n_funds": len(accepted),
+        "by_currency": dict(sorted(by_currency.items(), key=lambda kv: (-kv[1], kv[0]))),
+        "n_usd_aum_used": len(aum_by_fund),
+        "n_excluded_for_currency": len(excluded),
+        "excluded_funds": excluded,
+        "n_usd_missing_aum": n_missing_aum,
+        "fx_conversion": False,
+    }
+    return aum_by_fund, report
+
+
+def thin_exposure_report(holdings: dict) -> dict:
+    """v0.32 G2: accepted funds flagged thin at Stage 1b, for disclosure only.
+
+    Nothing in this module reads the flag to change a number — exposure-
+    weighting the consensus would alter C, whose definition is locked.
+    """
+    accepted = _accepted_funds(holdings)
+    thin = [
+        {
+            "fund_id": f["fund_id"],
+            "fund_name": f.get("fund_name"),
+            "weight_kept": (f.get("scope_summary") or {}).get("weight_kept"),
+        }
+        for f in accepted
+        if f.get("thin_us_exposure")
+    ]
+    return {
+        "n_funds": len(accepted),
+        "n_thin": len(thin),
+        "share_thin": round(len(thin) / len(accepted), 4) if accepted else 0.0,
+        "band": [0.20, 0.35],
+        "funds": thin,
+    }
+
+
+def _fund_maps(holdings: dict) -> tuple[dict[str, float], dict[str, str], dict]:
+    """Build the AUM (USD-only), style, and currency-report maps."""
+    aum_by_fund, currency_report = fund_aum_map(holdings)
+    return aum_by_fund, fund_style_map(holdings), currency_report
 
 
 def homogeneity_report(style_by_fund: dict[str, str], n_funds: int) -> dict:
@@ -290,10 +392,13 @@ def main():
 
     aum_by_fund: dict[str, float] = {}
     style_by_fund: dict[str, str] = {}
+    currency_report: dict = {}
+    thin_report: dict = {}
     n_funds = 0
     if args.holdings:
         holdings = json.loads(Path(args.holdings).read_text(encoding="utf-8"))
-        aum_by_fund, style_by_fund = _fund_maps(holdings)
+        aum_by_fund, style_by_fund, currency_report = _fund_maps(holdings)
+        thin_report = thin_exposure_report(holdings)
         n_funds = sum(1 for f in holdings.get("funds", []) if not f.get("rejected"))
 
     adv_by_ticker: dict[str, float] = {}
@@ -312,8 +417,12 @@ def main():
         held_by = r.get("held_by", []) or []
         weights_by_fund = r.get("weights_by_fund", {}) or {}
 
-        # A2: aggregate position $ across holders that disclose AUM. If no
-        # holder discloses AUM, aggregate is None -> NAV-only fallback.
+        # A2: aggregate position $ across holders that disclose a USD AUM.
+        # `aum_by_fund` is USD-only by construction (G1.2), so this sum is
+        # USD-true and its name is accurate rather than aspirational — do not
+        # widen the map to other currencies without converting, and conversion
+        # is deliberately out of scope. If no holder contributes, the aggregate
+        # is None -> NAV-only fallback.
         aggregate_position_usd: Optional[float] = None
         if aum_by_fund:
             acc = 0.0
@@ -354,6 +463,13 @@ def main():
     out = {
         "n_signals": len(signals),
         "homogeneity": homogeneity,
+        # v0.32 G4: the input-review findings that Layer 2 and Appendix 3 report.
+        # Carried here because both already read this file; nothing below reads
+        # them back to change a score.
+        "input_review": {
+            "currency": currency_report,
+            "thin_us_exposure": thin_report,
+        },
         "signals": signals,
     }
     out_path = Path(args.out)
@@ -361,7 +477,9 @@ def main():
     out_path.write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"Crowding signals: {len(signals)} -> {out_path} "
           f"(homogeneous={homogeneity['is_homogeneous']}, "
-          f"dominant_style={homogeneity['dominant_style']})")
+          f"dominant_style={homogeneity['dominant_style']}, "
+          f"currency_excluded={currency_report.get('n_excluded_for_currency', 0)}, "
+          f"thin_funds={thin_report.get('n_thin', 0)})")
 
 
 if __name__ == "__main__":
