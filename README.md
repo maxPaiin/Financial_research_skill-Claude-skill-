@@ -166,8 +166,9 @@ Given **7–11 HKMA-approved global fund prospectus PDFs**, the skill runs a thr
 4. **Coherence overlay (v0.31)**: audits each ranked stock for agreement between the macro read, the sector operating logic and sector-ETF relative strength, and **demotes** — never promotes — the display tier by at most one level where they contradict, naming the contradiction on the card. Writes a side-car `coherence.json`; `rankings.json` is read-only to it.
 4b. **Input review (v0.32)**: reports what the submitted set actually is — reporting currency per fund and which funds that excludes from the exit-liquidity aggregate, funds whose US sleeve is thin, Stage 0 regional advisories, rejections, and the style distribution — as one block rather than warnings scattered across sections.
 5. **Macro appendices (v0.3)**: central-bank-anchored macro/sector view, per-stock best/avg/worst scenarios, and an over-consensus / fund-style remediation appendix — all under a hard ≥2-primary-tier source-corroboration gate.
+6. **Important Notice (v0.33)**: a per-stock section on the **expectations bar** and the **sentiment cycle** — the two factors the ranking structurally cannot measure. Evidence is corroborated at sector/theme level and narrated by attributing the stock to its group; where two primary-tier sources do not exist, the entry says so explicitly. It enters no score, rank or tier, and is placed after the appendices and before the methodology.
 
-**Output**: the layered `.md` checkpoints, the `coherence.json` audit trail, and a single English-only PDF report, all copied to the user-visible outputs directory.
+**Output**: the layered `.md` checkpoints, the `coherence.json` audit trail, the Important Notice checkpoint, and a single English-only PDF report, all copied to the user-visible outputs directory.
 
 ---
 
@@ -182,6 +183,8 @@ Given **7–11 HKMA-approved global fund prospectus PDFs**, the skill runs a thr
 - **Not a price-confirmation tool (v0.31).** ETF relative strength is context, never confirmation; sector ETFs carry their own crowding. The overlay can only lower confidence in a name, never raise it.
 - **Not a currency converter (v0.32).** Non-USD fund AUM is excluded from the exit-liquidity aggregate and labelled, never FX-converted. Exclusion has one failure mode the report can state; conversion would add three it could not.
 - **Not an exposure-weighted consensus (v0.32).** The consensus counts funds, not US exposure. Funds with a thin US sleeve are flagged, not down-weighted — that would change a locked signal.
+- **Not a regime detector (v0.33).** The framework cannot tell you whether the market is currently overheated, and adding sourced sentiment evidence did not change that. The backtest was removed in v0.2, so there is nothing to calibrate such a judgment against — the notice states the boundary rather than papering over it with a number.
+- **Not a stock-level sentiment analyst (v0.33).** "The expectations bar for semiconductors / AI infrastructure has been raised" is corroborable; "the market's expectations for AVGO specifically are too high" is not. The notice describes the *environment a group is in*, never a verdict on a stock's price — the defect in the latter is not that it resembles advice, it is that it exceeds the granularity of the evidence.
 - **Not a supply-chain mapper.** Industry-policy and company-level supplier claims are deliberately out of scope — those relationships are absent from EDGAR's structured data and are the highest fabrication risk in the design.
 
 ---
@@ -308,6 +311,31 @@ Full orchestration logic and error recovery rules: [`SKILL.md`](./SKILL.md).
 Delete `coherence_audit.py` and its side-car and the pipeline still runs, producing the v0.3
 report. If removing it breaks anything downstream or changes a rank, the implementation is wrong
 — that is the overlay's acceptance test, not a nice-to-have.
+
+### Where the notice sits (v0.33)
+
+```
+3a     build_rankings.py  ──► rankings.json    ── rank order + composite
+3a-bis coherence_audit.py ──► coherence.json   ── tier may drop one level
+       │
+       │   READ-ONLY below this line
+       ▼
+H1     Claude             ──► important_notice_checkpoint.md
+       │                      prose only — no score, no rank, no tier
+       ▼
+4      build_report.py       renders it after the appendices, before the methodology
+```
+
+One layer further out again, held to the same standard. The notice reads `rankings.json` to know
+which 15 stocks to write about and which group each belongs to; it writes only
+`important_notice_checkpoint.md`. Delete that checkpoint and the PDF builds with every rank, tier
+and score identical.
+
+The property is enforced structurally rather than trusted: `TestNoticeIsOutsideEveryScoringLayer`
+fails if any script other than `build_report.py` and `check_checkpoints.py` so much as mentions
+the notice, and if `coherence_audit.py` ever grows a `sentiment` input. That second half matters
+because `macro_factors.json` — where the M1 expectations/sentiment facet would most naturally be
+written — is the overlay's input, and anything placed there can move a display tier.
 
 ---
 
@@ -485,6 +513,12 @@ python -m unittest discover tests -v
 
 Offline, no network calls, no pytest dependency.
 
+Alongside the unit tests, the suite locks in the structural invariants each iteration
+depends on — that no FX-conversion machinery exists anywhere in `scripts/` (v0.32), and that
+no scoring stage reads the Important Notice (v0.33). Those are the acceptance tests for
+"excluded, never converted" and "outside every layer"; if either property is ever quietly
+broken, a grep-based test is what says so.
+
 ---
 
 ## Output
@@ -588,3 +622,7 @@ itself is what gets shipped.
 7. **Reduced exit-liquidity coverage on non-USD input sets (v0.32)**: excluding non-USD AUM is correct but not free — an input set dominated by HKD share classes yields mostly `NAV-only` crowding figures, i.e. the v0.2 pure-weight discount with no days-to-liquidate information. This is a *stated* gap rather than a distorted number, and the exclusion count is reported in Layer 1 and Layer 2, but the exit-crowdedness signal is genuinely weaker on such a run.
 8. **Currency normalisation depends on Stage 1a (v0.32)**: the gate reads the `currency` the LLM extracted. A factsheet that states its reporting currency only in a footnote, a share-class table, or an image the text layer does not carry will come through as `null` and be excluded — the safe direction, but a false exclusion. Only unambiguous spellings are mapped (`US$`, `HK$`, `Euro`, `RMB`); a bare `$` or `¥` resolves to `null` rather than a guess.
 9. **The regional advisory is a title heuristic (v0.32)**: it reads the first few lines of page one, keeping lines that carry a fund-type word and no percentage figure. A factsheet whose title sits in an image, or whose text layer scrambles the first page, produces no advisory; a fund-of-funds row named after a region could produce a spurious one. Neither outcome affects the pipeline — Stage 1c is still the only thing that rejects a fund.
+10. **Group attribution is coarser than the company (v0.33)**: the notice attributes each stock to its industry bucket (or a named theme where the evidence supports one) and then describes *that group's* environment. A semiconductor name with little AI exposure still inherits the AI-infrastructure expectations reading, and a diversified company inherits whichever bucket it landed in. This is the deliberate trade: the precise alternative — a per-company sentiment claim — cannot clear the two-source gate and is the highest fabrication risk in the design.
+11. **A not-found entry is not an all-clear (v0.33)**: where a group has thin sentiment coverage, the entry states that no corroborating evidence was found. That means *no evidence either way* — not that the group's expectations bar is normal. Coverage is uneven by construction, so the well-documented groups (semis / AI infrastructure) get substantive entries while quieter sectors get a blank, and the asymmetry is a property of the source material, not a reading of the stocks.
+12. **The notice gate checks strings, not truth (v0.33)**: `check_checkpoints.py` catches banned verdict vocabulary, ticker-bound sentiment, unsourced entries and single-source citations. It cannot judge whether two named sources are genuinely independent, or whether the cited material actually supports the sentence written next to it. A fluent, correctly-formatted, correctly-cited but *wrong* paragraph passes the gate — that half of the review is Claude's, and it is the half that matters most here.
+13. **Square brackets are reserved inside the notice (v0.33)**: the two-source check reads every `[...]` in `important_notice_checkpoint.md` as a citation, so a markdown link or a bracketed aside is flagged as a single-source citation. The convention is documented in `references/important_notice.md`; the trade is a rigid notation in exchange for a mechanical C2 check on the section that most needs one.
