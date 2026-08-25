@@ -1,12 +1,12 @@
 ---
 name: financial-research
-description: Trigger with /claude_skill_Financial_research. End-to-end quantitative research for stock-type mutual funds. Parses 7-11 HKMA-approved fund prospectus PDFs distributed through Hong Kong private banking channels, extracts US-listed equity holdings (including ADRs), screens for fundamental quality, ranks by a risk-aware composite signal (confidence-shrunk fundamental quality + style-diversity-weighted, exit-liquidity-aware consensus-with-crowding-discount), applies a demotion-only macro/sector/ETF coherence overlay to the display tiers, adds central-bank-anchored macro and per-stock scenario appendices, and outputs an English-only PDF report with a top-15 watchlist. Trigger when the user invokes /claude_skill_Financial_research, or uploads multiple fund prospectus PDFs (7-11) and asks for fund analysis, holdings breakdown, individual-stock scoring, multi-fund comparison, or investment watchlist. Phrases include /claude_skill_Financial_research, fund analysis, holdings breakdown, fund prospectus analysis, "analyze these fund PDFs", 股票型基金分析, 基金研究. Prefer over generic PDF reading when 7+ fund PDFs are involved.
+description: Trigger with /claude_skill_Financial_research. End-to-end quantitative research for stock-type mutual funds. Parses 7-11 HKMA-approved fund prospectus PDFs distributed through Hong Kong private banking channels, extracts US-listed equity holdings (including ADRs), screens for fundamental quality, ranks by a risk-aware composite signal (confidence-shrunk fundamental quality + style-diversity-weighted, exit-liquidity-aware consensus-with-crowding-discount), applies a demotion-only macro/sector/ETF coherence overlay to the display tiers, adds central-bank-anchored macro and per-stock scenario appendices plus a per-stock important notice on the expectations environment and sentiment cycle, and outputs an English-only PDF report with a top-15 watchlist. Trigger when the user invokes /claude_skill_Financial_research, or uploads multiple fund prospectus PDFs (7-11) and asks for fund analysis, holdings breakdown, individual-stock scoring, multi-fund comparison, or investment watchlist. Phrases include /claude_skill_Financial_research, fund analysis, holdings breakdown, fund prospectus analysis, "analyze these fund PDFs", 股票型基金分析, 基金研究. Prefer over generic PDF reading when 7+ fund PDFs are involved.
 ---
 
-# Financial Research Skill v0.32
+# Financial Research Skill v0.33
 
 > **Every report must embed the disclaimer from `assets/disclaimer.md` verbatim (front and back).**
-> v0.3 = risk-aware consensus, confidence-penalised quality, central-bank-anchored macro appendix, conservative-by-design. **v0.31 adds the coherence overlay** (macro factors + sector logic + ETF divergence) — **demotion-only**, capped at one tier, never touches rank or the composite. **v0.32 is a defect patch**: `currency` becomes a required Stage 1a field and only USD-reporting funds enter the days-to-liquidate aggregate (excluded, never FX-converted), plus two input-review warnings (thin US exposure, Stage 0 regional advisory). Safety-first: when in doubt, say less and rank lower.
+> v0.3 = risk-aware consensus, confidence-penalised quality, central-bank-anchored macro appendix, conservative-by-design. **v0.31 adds the coherence overlay** (macro factors + sector logic + ETF divergence) — **demotion-only**, capped at one tier, never touches rank or the composite. **v0.32 is a defect patch**: `currency` becomes a required Stage 1a field and only USD-reporting funds enter the days-to-liquidate aggregate (excluded, never FX-converted), plus two input-review warnings (thin US exposure, Stage 0 regional advisory). **v0.33 adds the Important Notice** — a per-stock section on the two factors the framework structurally cannot measure (the expectations bar and the sentiment cycle), evidenced at sector level and attributed per stock. It sits **outside every scoring layer**: no score, no rank, no tier. Safety-first: when in doubt, say less and rank lower.
 
 ---
 
@@ -22,7 +22,7 @@ description: Trigger with /claude_skill_Financial_research. End-to-end quantitat
 | 2b | `fetch_fundamentals.py --email <e>` | `holdings.json` | `fundamentals.json`, `unscored_tickers.json`, `data_provenance.json` |
 | 2c | (inside 2b via `providers/resolver.py`) | EDGAR + yfinance per ticker | conflict entries appended to `data_provenance.json` |
 | 2d | `quality_screen.py` | `holdings.json`, `fundamentals.json`, `unscored_tickers.json` | `screen_results.json` (+ `passed_industries` census) |
-| **M1** | Claude + directed-fetch | `screen_results.json` → **post-screen-universe industries** (Fed/ECB/BoJ + official stats) | `macro_checkpoint.md` **+ `macro_factors.json`** (structured rate-path / inflation-trend fields) |
+| **M1** | Claude + directed-fetch | `screen_results.json` → **post-screen-universe industries** (Fed/ECB/BoJ + official stats) | `macro_checkpoint.md` (**v0.33: also the per-industry expectations-bar / sentiment-cycle facet — same scope, same C2 gate**) **+ `macro_factors.json`** (rate-path / inflation-trend fields only — the facet must NOT go here) |
 | **M1b** | Claude | `screen_results.json` industries + Layer-2 fundamentals | `sector_logic.json` (E2.2 three universal questions per industry) |
 | 2e | `compute_scores.py` | `fundamentals.json`, `screen_results.json` | `scores_per_stock.json` (carries `adv`/`market_cap`) |
 | 2f | `crowding_signal.py --holdings --fundamentals` | `overlap.json`, `holdings.json`, `fundamentals.json` | `crowding_signals.json` (days-to-liquidate **from USD-reporting funds only**, style-diversity, homogeneity, `input_review`) |
@@ -35,8 +35,9 @@ description: Trigger with /claude_skill_Financial_research. End-to-end quantitat
 | 3d | `layer3_report.py --coherence` | `rankings.json`, `coherence.json`, framing, rationale | `layer3_ranked_advice.md` (tier grouping applies demotions; **rank display unchanged**) |
 | M2 | Claude | `rankings.json`, `macro_checkpoint.md` | `expectations_checkpoint.md` (still post-rank, scoped to the final 15) |
 | M3 | Claude | `crowding_signals.json` homogeneity + style dist + `input_review.thin_us_exposure` | `appendix3_consensus_warning.md` (**thin-exposure caveat when any accepted fund is thin; omitted entirely when none is**) |
+| **H1** | Claude | `rankings.json` (read-only) + the M1 facet in `macro_checkpoint.md` | `important_notice_checkpoint.md` (per-stock expectations bar + sentiment cycle, **group-attributed**) |
 | Mg | `check_checkpoints.py <work-dir>` | all checkpoints + `coherence.json` | stdout (gate; exit 1 on failure) |
-| 4 | `build_report.py` | layer + appendix .md files | `financial_research_report.pdf` + checkpoint copies (incl. `coherence.json`) in outputs |
+| 4 | `build_report.py` | layer + appendix .md files **+ `important_notice_checkpoint.md`** | `financial_research_report.pdf` (notice rendered **after the appendices, before methodology**) + checkpoint copies (incl. `coherence.json`) in outputs |
 
 > **Stage 2c (multi-source resolution):** Runs implicitly inside Stage 2b. For
 > each ticker EDGAR and yfinance are consulted; overlapping fields are merged via
@@ -80,6 +81,19 @@ description: Trigger with /claude_skill_Financial_research. End-to-end quantitat
 > Full spec: `references/macro_appendix.md`. These stages add web retrieval and
 > token load — the `.md` checkpoints let a long run survive context pressure.
 
+> **Stage H1 (v0.33 Important Notice):** a per-stock section on the two factors
+> the framework structurally cannot measure — the **expectations bar** (the
+> quality axis is entirely backward-looking, so a name that has beaten for eight
+> quarters and one nobody expects anything from score identically on `Q`) and the
+> **sentiment cycle** (no regime detection exists, by design). It sits **outside
+> every layer**: it enters no score, no rank and no tier, and removing it leaves
+> the report's numbers bit-for-bit identical. **Evidence is retrieved and
+> corroborated at sector/theme level and narrated by attributing the stock to its
+> group** — a single-stock sentiment assertion is the highest-fabrication-risk
+> sentence this skill could write, and the C2 two-source hard gate is never
+> relaxed here. Written **constructively, not defensively**: it is not a second
+> disclaimer. Full spec: `references/important_notice.md`.
+
 > **Stage 3a-bis (v0.31 coherence overlay):** asks whether the macro read, the
 > sector operating logic and the sector-relative price action tell the same
 > story. A contradiction in any pair demotes the stock **exactly one display
@@ -111,6 +125,10 @@ description: Trigger with /claude_skill_Financial_research. End-to-end quantitat
 | yfinance quote fetch fails for a sector ETF | That sector's RS is insufficient-data; other sectors still audited; no crash |
 | `coherence.json` absent at 3d | Run without `--coherence`: pure rank-slice tiers (v0.3 output) |
 | Overlay would demote 2 tiers / promote | Impossible by construction; if seen, the implementation is wrong — `check_checkpoints.py` fails the run |
+| No corroborating sentiment/expectations evidence for a stock's group | Write the explicit not-found statement in that entry. **Never** a single-source claim, never a fabricated summary |
+| The notice would need a stock-level claim to say anything | Say nothing at stock level. Attribute the stock to its group and describe the group, or state that no evidence was found |
+| M1's expectations/sentiment facet is tempting to put in `macro_factors.json` | Do not. That file feeds the overlay and can move a tier; the facet stays in `macro_checkpoint.md` |
+| `important_notice_checkpoint.md` absent at Stage 4 | The section is simply omitted; every rank, tier and score is unchanged |
 | `check_checkpoints.py` exits 1 | Fix the flagged checkpoint before building the PDF |
 | Stage 3b batch fails | Retry that batch once; else write placeholder card with data only |
 | PDF assembly (Stage 4) fails | Surface the layer .md files directly; explain reportlab issue |
@@ -123,6 +141,7 @@ description: Trigger with /claude_skill_Financial_research. End-to-end quantitat
 /home/claude/work/                 (EPHEMERAL — resets between sessions)
   layer1_extraction.md  layer2_screening.md  layer3_ranked_advice.md
   macro_checkpoint.md   expectations_checkpoint.md  appendix3_consensus_warning.md
+  important_notice_checkpoint.md                                                      (v0.33)
   holdings.json  overlap.json  fundamentals.json  unscored_tickers.json
   data_provenance.json  screen_results.json  scores_per_stock.json
   crowding_signals.json  rankings.json
@@ -155,6 +174,12 @@ The closing chat message points the user to `/mnt/user-data/outputs` for the PDF
 - **`currency` is required at Stage 1a and never defaulted.** Only `currency == "USD"` funds contribute AUM to `aggregate_position_usd`; non-USD and `null` are **excluded, never converted**. **No FX conversion may exist anywhere in the codebase** — the units are either identical or the input is set aside and labelled. There is no third path.
 - **Thin US exposure (20–35% of AUM) is a warning, never a re-weighting.** Such funds are accepted in full and their consensus contribution is unchanged — `C`'s definition is locked, and exposure-weighting it belongs to a signal iteration, not a defect patch. Viability thresholds (≥5 holdings, ≥20% weight) are unchanged.
 - **Stage 0 regional advisories are non-blocking**: never in `errors`, never affecting `ok`, the exit code, or the file-count logic.
+- **The Important Notice changes nothing it is placed after.** It never enters `Q''`, `C`, the composite, `rankings.json` or `coherence.json`, and is not a fourth coherence input. Deleting `important_notice_checkpoint.md` must leave every rank, tier and score bit-for-bit identical.
+- **Notice evidence is sector-level; notice wording must not exceed it.** Corroborate at sector/theme level, narrate by attributing the stock to its group. No stock-level sentiment or valuation assertion anywhere — "this group is in an elevated-expectations environment", never "this stock is overpriced". The defect in the second is not that it resembles advice, it is that it exceeds the granularity of the evidence.
+- **The C2 hard gate is never relaxed for the notice.** ≥2 primary-tier sources per claim, or an explicit statement that no corroborating evidence was found. Admitting single-source claims here would make it the one low-standard region in the report — and the one most easily fabricated.
+- **The notice is written constructively, not defensively.** It is not a second disclaimer; the standing verbatim disclaimer already covers that. Its argument — **Tier A means highest-ranked on the measurable dimensions, and precisely for that reason such a name is more likely already fully priced** — is stated ONCE at the section head, not per stock (same discipline as the HK-bias note).
+- **Presenting sentiment evidence does not create a regime detector.** The notice must say plainly that the tool still has none.
+- **No new retrieval scope for v0.33.** M1's existing post-screen sector scope gains a facet; per-stock retrieval is out of scope.
 - Consensus is style-diversity-weighted; stratified sampling is abandoned (sample too small; token budget) — disclose both reasons.
 - Macro/expectations facts: ≥2 primary-tier sources (HARD gate), per-sentence attribution, no blacklist.
 - Stage 3b: cards in 3 batches of 5, never all 15 at once.
@@ -166,4 +191,5 @@ The closing chat message points the user to `/mnt/user-data/outputs` for the PDF
 
 *See `references/` for methodology, crowding signal (incl. the v0.32 currency
 gate), providers, quality screen, honest framing, the macro/expectations
-appendices, and the v0.31 coherence overlay. No formulas live in this file.*
+appendices, the v0.31 coherence overlay, and the v0.33 important notice. No
+formulas live in this file.*

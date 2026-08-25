@@ -1350,5 +1350,323 @@ class TestLayer2InputReview(unittest.TestCase):
         self.assertIn("Fund AUM was not supplied to this stage", md)
 
 
+# -----------------------------------------------------------------------------
+# v0.33 Part H — Important Notice: the deterministic content gate
+# -----------------------------------------------------------------------------
+
+_GOOD_NOTICE = """## Important Notice — Expectations Environment and Sentiment Cycle
+
+The ranking answers which stocks score highest on the measurable dimensions; this
+section describes a dimension it does not measure. The quality axis is entirely
+backward-looking, and the tool has no regime-detection capability — presenting
+evidence here does not create one. "Tier A" means highest-ranked on the
+measurable dimensions, and precisely for that reason such a name is more likely
+already fully priced. The two readings must be held together.
+
+### AVGO — semiconductors / AI infrastructure
+
+**Expectations bar.** The semiconductor / AI-infrastructure group this stock
+belongs to sits in an elevated-expectations environment, where a beat is the
+market's default assumption. [Reuters 2026-08-04; BlackRock Investment Institute 2026-07]
+
+**Sentiment cycle.** Financial conditions for the group are characterised as
+accommodative after a sustained run. [Fed Monetary Policy Report 2026-06; WSJ 2026-07-30]
+
+### JNJ — healthcare
+
+**Expectations bar.** No publicly available evidence meeting the corroboration
+standard was found for this group.
+
+**Sentiment cycle.** No publicly available evidence meeting the corroboration
+standard was found for this group.
+"""
+
+
+class TestImportantNoticeGate(unittest.TestCase):
+    """H2/H3/H4: the strictest content checks in check_checkpoints.py.
+
+    The notice narrates sector-level evidence per stock, which is the most
+    easily fabricated content in the skill — so every rule that can be checked
+    mechanically is checked mechanically.
+    """
+
+    def _seed(self, work: Path, notice: str | None = _GOOD_NOTICE):
+        (work / "layer1_extraction.md").write_text(
+            "# Layer 1\n## Input review\n## Per-fund extraction\n")
+        (work / "layer2_screening.md").write_text(
+            "## Quality screen results\n## Input-set style homogeneity\n"
+            "## Reporting currency and the exit-liquidity aggregate\n")
+        (work / "layer3_ranked_advice.md").write_text(
+            "## Methodology disclosure\nConfidence-shrinkage\nexit-crowdedness\n")
+        (work / "rankings.json").write_text(json.dumps({"ranked": [
+            {"ticker": "AVGO", "industry": "technology"},
+            {"ticker": "JNJ", "industry": "healthcare"},
+        ]}))
+        if notice is not None:
+            (work / "important_notice_checkpoint.md").write_text(notice)
+
+    def _review(self, notice: str | None):
+        import check_checkpoints as cc
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            self._seed(work, notice)
+            return cc.review(work, set())
+
+    def _expect_problem(self, notice: str, needle: str):
+        res = self._review(notice)
+        self.assertFalse(res["ok"], f"expected a failure mentioning {needle!r}")
+        self.assertTrue(
+            any(needle in p for p in res["problems"]),
+            f"no problem mentioned {needle!r}; got {res['problems']}",
+        )
+
+    def test_well_formed_notice_passes(self):
+        self.assertTrue(self._review(_GOOD_NOTICE)["ok"])
+
+    def test_absent_notice_is_not_required(self):
+        # H0: the notice must stay removable — the gate cannot depend on it.
+        self.assertTrue(self._review(None)["ok"])
+
+    def test_absent_notice_can_be_required_explicitly(self):
+        import check_checkpoints as cc
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            self._seed(work, None)
+            res = cc.review(work, {"important_notice_checkpoint.md"})
+            self.assertFalse(res["ok"])
+
+    def test_stock_level_sentiment_claim_is_caught(self):
+        # H2.1 / acceptance 2: sector-level evidence, stock-level subject.
+        self._expect_problem(
+            _GOOD_NOTICE.replace(
+                "The semiconductor / AI-infrastructure group this stock\nbelongs to sits",
+                "Expectations for AVGO are"),
+            "stock-level claim",
+        )
+
+    def test_ticker_possessive_sentiment_is_caught(self):
+        self._expect_problem(
+            _GOOD_NOTICE.replace("The semiconductor", "AVGO's valuation is stretched. The semiconductor"),
+            "stock-level claim",
+        )
+
+    def test_verdict_vocabulary_is_banned_at_any_granularity(self):
+        # H3.1: the register describes an environment, never a price verdict.
+        for term in ("overvalued", "priced for perfection", "overbought",
+                     "overly optimistic", "is a buy"):
+            with self.subTest(term=term):
+                self._expect_problem(
+                    _GOOD_NOTICE.replace("sits in an elevated-expectations environment",
+                                         f"is {term}"),
+                    "valuation/sentiment verdict",
+                )
+
+    def test_single_source_citation_fails(self):
+        # H2.2: the C2 two-source gate is never relaxed for this section.
+        self._expect_problem(
+            _GOOD_NOTICE.replace(
+                "[Reuters 2026-08-04; BlackRock Investment Institute 2026-07]",
+                "[Reuters 2026-08-04]"),
+            "single-source citation",
+        )
+
+    def test_adjacent_bracket_citation_form_is_accepted(self):
+        notice = _GOOD_NOTICE.replace(
+            "[Reuters 2026-08-04; BlackRock Investment Institute 2026-07]",
+            "[Reuters 2026-08-04][BlackRock Investment Institute 2026-07]")
+        self.assertTrue(self._review(notice)["ok"])
+
+    def test_entry_without_source_or_not_found_fails(self):
+        # H4.3: a block with neither is an unsourced assertion.
+        notice = _GOOD_NOTICE.replace(
+            "**Expectations bar.** No publicly available evidence meeting the corroboration\n"
+            "standard was found for this group.\n\n"
+            "**Sentiment cycle.** No publicly available evidence meeting the corroboration\n"
+            "standard was found for this group.",
+            "**Expectations bar.** The group looks steady.\n\n"
+            "**Sentiment cycle.** Neutral.")
+        self._expect_problem(notice, "neither a citation nor an explicit")
+
+    def test_explicit_not_found_is_an_acceptable_entry(self):
+        # H2.2: saying so is an honest output, not a failure.
+        self.assertTrue(self._review(_GOOD_NOTICE)["ok"])
+        self.assertIn("No publicly available evidence", _GOOD_NOTICE)
+
+    def test_defensive_phrasing_is_caught(self):
+        # H0.2 / acceptance 5: the standing disclaimer already covers this.
+        for phrase in ("This section is for reference only.",
+                       "This does not constitute investment advice.",
+                       "Consult a financial adviser before acting."):
+            with self.subTest(phrase=phrase):
+                self._expect_problem(
+                    _GOOD_NOTICE.replace("The two readings must be held together.",
+                                         "The two readings must be held together. " + phrase),
+                    "defensive phrasing",
+                )
+
+    def test_closing_argument_must_appear_exactly_once(self):
+        # H4.4: stated once at the section head, like the D3 bias note.
+        self._expect_problem(
+            _GOOD_NOTICE.replace("already fully priced", "already reflected in price"),
+            "closing argument missing",
+        )
+        self._expect_problem(
+            _GOOD_NOTICE.replace(
+                "**Sentiment cycle.** Financial conditions",
+                "Such a name is more likely already fully priced.\n\n"
+                "**Sentiment cycle.** Financial conditions"),
+            "closing argument appears 2 times",
+        )
+
+    def test_risk_warning_register_is_caught(self):
+        # H4.2 / acceptance 8: a measurement boundary, not a per-stock warning.
+        self._expect_problem(
+            _GOOD_NOTICE.replace("**Expectations bar.**",
+                                 "**Risk warning — expectations bar.**"),
+            "'risk warning' phrasing",
+        )
+
+    def test_regime_boundary_must_be_stated(self):
+        # Acceptance 6: evidence does not create a regime detector.
+        self._expect_problem(
+            _GOOD_NOTICE.replace("no regime-detection capability", "no such capability"),
+            "no regime-detection statement",
+        )
+
+    def test_required_markers(self):
+        self._expect_problem(
+            _GOOD_NOTICE.replace("## Important Notice — Expectations Environment and "
+                                 "Sentiment Cycle", "## Risk Warning"),
+            "missing required section/marker",
+        )
+
+    def test_ticker_checks_skip_cleanly_without_rankings(self):
+        # rankings.json absent: the ticker-bound half is skipped, the rest runs.
+        import check_checkpoints as cc
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            self._seed(work, _GOOD_NOTICE)
+            (work / "rankings.json").unlink()
+            self.assertTrue(cc.review(work, set())["ok"])
+
+
+# -----------------------------------------------------------------------------
+# v0.33 H0/H4.1 — the notice is an outermost layer: placed, never scored
+# -----------------------------------------------------------------------------
+
+class TestNoticeIsOutsideEveryScoringLayer(unittest.TestCase):
+    """Acceptance 1: removing the section changes no rank, tier or score.
+
+    Enforced structurally rather than by fixture comparison — only the two
+    presentation scripts may know the notice exists. If a scoring stage ever
+    reads it, this test is the thing that says so.
+    """
+
+    _ALLOWED = {"build_report.py", "check_checkpoints.py"}
+
+    def test_no_scoring_stage_reads_the_notice(self):
+        offenders = []
+        for path in sorted((_REPO_ROOT / "scripts").rglob("*.py")):
+            if path.name in self._ALLOWED:
+                continue
+            if "important_notice" in path.read_text(encoding="utf-8"):
+                offenders.append(path.name)
+        self.assertEqual(
+            offenders, [],
+            "v0.33 H0: the Important Notice enters no score, rank or tier. "
+            f"Referenced by: {offenders}",
+        )
+
+    def test_macro_factors_stays_free_of_the_facet(self):
+        # H2.4: macro_factors.json feeds coherence_audit.py, so a sentiment
+        # field written there could move a display tier — which the notice
+        # may never do.
+        text = (_REPO_ROOT / "scripts" / "coherence_audit.py").read_text(encoding="utf-8")
+        for banned in ("sentiment", "expectations_bar", "important_notice"):
+            self.assertNotIn(banned, text.lower(),
+                             f"coherence_audit.py must not consume '{banned}' (H2.4)")
+
+
+class TestNoticePlacement(unittest.TestCase):
+    """H4.1: after the appendices, before methodology; H4.5: copied to outputs."""
+
+    def _seed(self, work: Path, with_notice: bool):
+        (work / "layer1_extraction.md").write_text("# Layer 1\n## Input review\nbody\n")
+        (work / "layer2_screening.md").write_text("## Quality screen results\nbody\n")
+        (work / "layer3_ranked_advice.md").write_text(
+            "## What this analysis is and is not\n\nFraming prose.\n\n"
+            "## Tier A\n\n### #1 AVGO\ncard body\n\n"
+            "## Methodology disclosure\n\nConfidence-shrinkage detail.\n\n"
+            "## Disclaimer\n\nverbatim\n")
+        (work / "appendix3_consensus_warning.md").write_text(
+            "Add a value fund and a dividend fund.\n")
+        if with_notice:
+            (work / "important_notice_checkpoint.md").write_text(_GOOD_NOTICE)
+
+    def test_checkpoint_is_copied_to_outputs(self):
+        import build_report
+        self.assertIn("important_notice_checkpoint.md", build_report._CHECKPOINT_FILES)
+        with tempfile.TemporaryDirectory() as tmp:
+            work, out = Path(tmp) / "work", Path(tmp) / "out"
+            work.mkdir()
+            self._seed(work, with_notice=True)
+            copied = build_report.copy_checkpoints(work, out)
+            self.assertIn("important_notice_checkpoint.md", copied)
+            self.assertTrue((out / "important_notice_checkpoint.md").exists())
+
+    def test_leading_title_is_stripped_so_the_pdf_shows_one_heading(self):
+        import build_report
+        stripped = build_report._strip_leading_title(_GOOD_NOTICE, "Important Notice")
+        self.assertFalse(stripped.lstrip().startswith("## Important Notice"))
+        self.assertIn("Expectations bar", stripped)
+
+    def test_body_mention_of_the_phrase_is_not_stripped(self):
+        import build_report
+        body = "Some prose about the Important Notice section.\n"
+        self.assertEqual(build_report._strip_leading_title(body, "Important Notice"), body)
+
+    def test_pdf_places_the_notice_between_appendices_and_methodology(self):
+        try:
+            from pypdf import PdfReader
+        except ImportError:
+            self.skipTest("pypdf not installed")
+        import build_report
+        if not build_report._HAS_REPORTLAB:
+            self.skipTest("reportlab not installed")
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp) / "work"
+            work.mkdir()
+            self._seed(work, with_notice=True)
+            pdf = Path(tmp) / "report.pdf"
+            build_report.build_pdf(work, pdf)
+            text = "\n".join(p.extract_text() or "" for p in PdfReader(str(pdf)).pages)
+            i_app3 = text.find("Over-Consensus")
+            i_notice = text.find("Important Notice")
+            i_meth = text.find("Methodology disclosure")
+            self.assertNotEqual(i_app3, -1)
+            self.assertNotEqual(i_notice, -1)
+            self.assertNotEqual(i_meth, -1)
+            self.assertLess(i_app3, i_notice, "notice must follow the appendices (H4.1)")
+            self.assertLess(i_notice, i_meth, "notice must precede methodology (H4.1)")
+
+    def test_pdf_builds_without_the_notice(self):
+        try:
+            from pypdf import PdfReader
+        except ImportError:
+            self.skipTest("pypdf not installed")
+        import build_report
+        if not build_report._HAS_REPORTLAB:
+            self.skipTest("reportlab not installed")
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp) / "work"
+            work.mkdir()
+            self._seed(work, with_notice=False)
+            pdf = Path(tmp) / "report.pdf"
+            build_report.build_pdf(work, pdf)
+            text = "\n".join(p.extract_text() or "" for p in PdfReader(str(pdf)).pages)
+            self.assertNotIn("Expectations Environment and Sentiment Cycle", text)
+            self.assertIn("Methodology disclosure", text)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -1,4 +1,4 @@
-# Macro & Expectations Appendices Reference (v0.3, amended by v0.31)
+# Macro & Expectations Appendices Reference (v0.3, amended by v0.31 and v0.33)
 
 This file specifies the v0.3 web-retrieval subsystem and the three report
 appendices it feeds. It is a reader for Claude and humans — the macro stages
@@ -17,6 +17,17 @@ scripts involved are `check_checkpoints.py` (deterministic gate) and
 > **This is a pure sequencing move: M1's internal logic, its sources, the
 > directed-fetch policy and the C2 hard gate below are unchanged.** M2 stays
 > after ranking, scoped to the final 15.
+
+> **v0.33 amendment (H2.4) — M1 gains a facet, not a scope.** Alongside the
+> macro read, M1 also records, **for the same sector scope it already covers**,
+> the **expectations environment and sentiment cycle** of each industry: is the
+> group's expectations bar elevated, where is it in the optimism/pessimism cycle.
+> Same sources, same C2 hard gate, same per-sentence attribution — **no new
+> retrieval scope and no per-stock retrieval.** This facet feeds the v0.33
+> Important Notice (`references/important_notice.md`) via `macro_checkpoint.md`.
+> **It must not be written into `macro_factors.json`**: that file is the
+> coherence overlay's input, and anything placed there can move a display tier,
+> which the notice may never do.
 
 > **Premise carried from v0.3 §0:** primary sources outrank secondary; one-hand
 > data outranks news; central-bank output *is* the macro view and is the most
@@ -67,6 +78,16 @@ coherence overlay can compare against them:
   }
 }
 ```
+
+**Also record the expectations/sentiment facet (v0.33 H2.4) — again, no new
+fetching.** For each industry already in scope, note whether the group's
+**expectations bar** is elevated (is a beat the market's default assumption?) and
+where the group sits in the **sentiment cycle** (optimism / pessimism after a run
+of performance). Both are group-level readings only — never per company — and
+both are subject to the C2 hard gate: two independent primary-tier sources or the
+statement is not written. Keep them in `macro_checkpoint.md`, **not** in
+`macro_factors.json`. Stage H1 turns them into the per-stock Important Notice;
+full spec: `references/important_notice.md`.
 
 The **C2 hard gate below applies unchanged** to any of this carried into the
 report. A direction that cannot clear the gate is left out — the overlay then
@@ -194,8 +215,10 @@ in `crowding_signal.py` — keep the two in sync.
 
 - M1 writes `macro_checkpoint.md` **and `macro_factors.json`** (v0.31); M2 writes
   `expectations_checkpoint.md`; Appendix 3 is written to
-  `appendix3_consensus_warning.md`. Stage 3a-bis writes the `coherence.json`
-  side-car, which the gate checks for the overlay's invariants when present.
+  `appendix3_consensus_warning.md`; **Stage H1 writes
+  `important_notice_checkpoint.md`** (v0.33). Stage 3a-bis writes the
+  `coherence.json` side-car, which the gate checks for the overlay's invariants
+  when present.
 - `check_checkpoints.py <work_dir>` is the deterministic gate (required sections,
   per-sentence attribution, percent-range sanity, D3 no-per-card-bias). Reserve
   LLM review for genuine judgment: rationale quality, framing accuracy, and the

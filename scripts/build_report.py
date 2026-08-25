@@ -10,6 +10,7 @@ Reads (from <work-dir>):
   macro_checkpoint.md                (M1 — optional; Appendix 2 macro/sector view)
   expectations_checkpoint.md         (M2 — optional; Appendix 1+2 per-stock scenarios)
   appendix3_consensus_warning.md     (C4 — optional; over-consensus + style remediation)
+  important_notice_checkpoint.md     (H1 — optional; v0.33 expectations bar + sentiment cycle)
 
 Outputs:
   /mnt/user-data/outputs/financial_research_report.pdf (default)
@@ -36,14 +37,24 @@ PDF section order (v0.3, §3.4):
       contradiction on the card)
   11. Appendix 1+2: per-stock best/avg/worst scenarios + macro/sector drivers
   12. Appendix 3: over-consensus & false-theme warning + fund-style remediation
-  13. Methodology disclosure (confidence-shrinkage, days-to-liquidate, gate,
+  13. Important Notice — expectations environment and sentiment cycle (v0.33,
+      H4.1: after the appendices, before methodology. Its content is per-stock
+      but its nature is *how to read the preceding results*, so it follows the
+      analysis and precedes the method)
+  14. Methodology disclosure (confidence-shrinkage, days-to-liquidate, gate,
       v0.31 coherence overlay + its limitations, v0.32 currency-exclusion rule)
-  14. Disclaimer (back)
+  15. Disclaimer (back)
 
 All Layer 3 content — including the overlay's tier demotions and per-card
 contradiction lines — arrives through layer3_ranked_advice.md, so this script
 needs no overlay-specific rendering: if the overlay did not run, the file simply
 has no coherence text and the PDF is the pre-overlay report.
+
+The v0.33 Important Notice is the same kind of bolt-on one layer further out: it
+is a whole extra section rather than text inside an existing one, so this script
+places it — but placement is all it does. The notice never touches a rank, a tier
+or a score, so dropping `important_notice_checkpoint.md` yields the v0.32 report
+with every number identical.
 
 v0.3 layout (D2): hard page breaks are reserved for major boundaries (cover,
 front disclaimer, the analysis body, the appendices, the back disclaimer).
@@ -94,6 +105,9 @@ _CHECKPOINT_FILES = [
     "macro_checkpoint.md",
     "expectations_checkpoint.md",
     "appendix3_consensus_warning.md",
+    # v0.33 (H4.5): the Important Notice, checkpointed and copied like every
+    # other section so a reader can audit its sourcing outside the PDF.
+    "important_notice_checkpoint.md",
     # v0.31: the overlay's audit trail. Copied so a reader can check every tier
     # demotion against the three factor readings that produced it — the point of
     # keeping the judgment out of the composite is that it stays separable.
@@ -275,6 +289,29 @@ def _add_table_styles(styles):
         ))
 
 
+# v0.33 (H4.2): the notice checkpoint carries its own "## Important Notice — …"
+# heading, which check_checkpoints.py requires as a marker. The PDF supplies the
+# canonical section title itself, so the file's own title line is dropped rather
+# than rendered a second line below an identical one.
+_NOTICE_TITLE = "Important Notice — Expectations Environment and Sentiment Cycle"
+
+
+def _strip_leading_title(text: str, needle: str) -> str:
+    """Drop a leading markdown heading that repeats `needle`.
+
+    Only the first non-blank line is considered, and only when it is a heading:
+    a mention of the phrase in body prose is left alone.
+    """
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if not line.strip():
+            continue
+        if line.lstrip().startswith("#") and needle.lower() in line.lower():
+            return "\n".join(lines[i + 1:]).lstrip("\n")
+        return text
+    return text
+
+
 # --- Layer 3 slicing: split into framing / cards+tiers / methodology --------
 
 def _slice_layer3(layer3: str) -> tuple[str, str, str]:
@@ -328,6 +365,7 @@ def build_pdf(work_dir: Path, out_path: Path):
     macro_md = work_dir / "macro_checkpoint.md"
     expectations_md = work_dir / "expectations_checkpoint.md"
     appendix3_md = work_dir / "appendix3_consensus_warning.md"
+    notice_md = work_dir / "important_notice_checkpoint.md"
 
     framing, cards, methodology = _slice_layer3(layer3)
 
@@ -421,12 +459,23 @@ def build_pdf(work_dir: Path, out_path: Path):
             styles["Heading1"])]
         story += _md_to_paragraphs(_load_text(appendix3_md), styles)
 
-    # 13. Methodology disclosure (major boundary → break)
+    # 13. Important Notice — expectations environment + sentiment cycle (v0.33).
+    #     H4.1 places it after the appendices and before methodology: it is a
+    #     reading aid for the results above, not analysis output of its own. It
+    #     enters no score and moves no tier, so an absent file simply removes
+    #     the section and leaves the rest of the report untouched.
+    if notice_md.exists():
+        story += [PageBreak()]
+        story += [Paragraph(_escape_inline(_NOTICE_TITLE), styles["Heading1"])]
+        story += _md_to_paragraphs(
+            _strip_leading_title(_load_text(notice_md), "Important Notice"), styles)
+
+    # 14. Methodology disclosure (major boundary → break)
     if methodology:
         story += [PageBreak()]
         story += _md_to_paragraphs(methodology, styles)
 
-    # 14. Disclaimer (back)  (major boundary → break)
+    # 15. Disclaimer (back)  (major boundary → break)
     story += [PageBreak()]
     story += [Paragraph("Disclaimer", styles["Heading1"])]
     story += _md_to_paragraphs(disclaimer, styles)

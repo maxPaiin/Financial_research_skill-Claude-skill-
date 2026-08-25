@@ -24,7 +24,11 @@ banking channels (Standard Chartered HK, Citi HK, and similar), the skill:
    they contradict each other (v0.31 — see `references/coherence_overlay.md`).
 6. Adds central-bank-anchored macro and per-stock scenario appendices, and an over-consensus
    / fund-style remediation appendix (v0.3 — see `references/macro_appendix.md`).
-7. Outputs the layered markdown checkpoints and a final English-only PDF; checkpoints are
+7. Appends a per-stock **Important Notice** on the expectations environment and sentiment
+   cycle — the two factors the ranking structurally cannot measure — evidenced at sector
+   level and attributed per stock (v0.33 — see `references/important_notice.md`). It enters
+   no score, rank or tier.
+8. Outputs the layered markdown checkpoints and a final English-only PDF; checkpoints are
    copied to the user-visible outputs directory.
 
 ## v0.3 design premises (locked)
@@ -90,6 +94,46 @@ are all untouched.
   expensive Stage 1a parse but decides nothing: a blocking name-heuristic would falsely
   reject exactly the edge cases the Stage 1c gate handles correctly. A false advisory costs
   one sentence of noise; a false rejection discards a valid input.
+
+## v0.33 (Important Notice — the measurement boundary, made explicit and sourced)
+
+v0.33 adds no capability and changes no number. It names two things the framework is blind
+to and gives the reader the evidence to supply them.
+
+- **The quality axis is backward-looking, so the expectations bar is invisible to it.** The
+  5-year-average ROE percentile measures profitability that has already occurred. A company
+  that has beaten for eight consecutive quarters — with three years of growth already in the
+  price — and a company with identical ROE that nobody expects anything from receive the
+  *same* `Q`. A4's low-anchor shrinkage sharpens this, since it rewards verifiable historical
+  data while expectations are by nature unverifiable. `EV/EBITDA` cannot substitute: it is a
+  screen gate only, never scored, and absolute rather than relative to the stock's own range.
+- **Unquantifiable here means it must not be quantified here.** The backtest was removed in
+  v0.2, so nothing exists to calibrate "the market is overheated" against. A sentiment score
+  would be the same false precision the overlay refused when it declined a `0.2·Macro` axis —
+  and a valuation tilt would systematically demote semiconductor/AI names, precisely the
+  names the HK distribution channel surfaces most. A sourced notice is the only truthful form.
+- **Outermost by construction, not by compromise.** The notice reads the results; it does not
+  produce them. It never enters `Q''`, `C`, the composite, `rankings.json` or `coherence.json`,
+  and it is not a fourth coherence input. Removing it leaves every rank, tier and score
+  bit-for-bit identical — v0.31's reversibility property, one layer further out.
+- **Wording precision must match evidence granularity.** Sector-level evidence narrated as a
+  stock-level verdict is the same defect the C2 gate exists to prevent: the claim exceeds what
+  was actually retrieved. "This group is in an elevated-expectations environment" is
+  supportable; "this stock is overpriced" is not, and no amount of hedging makes it so.
+- **The gate is never relaxed for the softest-looking section.** Single-stock sentiment
+  assertions read fluently and are trivially invented — they are the highest-fabrication-risk
+  content in this skill. Admitting single-source claims "because it is only a notice" would
+  make it the one low-standard region in the report. Thin evidence produces an explicit
+  not-found statement, which is itself information: the reader learns which groups are
+  well-covered and which are not.
+- **Risk awareness is part of understanding markets, not a disclaimer.** The section is
+  written constructively. Its argument — *Tier A means highest-ranked on the measurable
+  dimensions, and precisely for that reason such a name is more likely already fully priced* —
+  is a claim about how to read the ranking, not an escape clause, and it is stated once at
+  the section head under the same discipline that states the HK-bias once (D3).
+- **Presenting evidence does not create a capability.** The tool still has no regime
+  detection, and the notice says so — because adding sources is exactly what would tempt a
+  reader to conclude otherwise.
 
 ## What the skill is NOT
 

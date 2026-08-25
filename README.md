@@ -1,8 +1,45 @@
 > **Trigger keyword:** `/claude_skill_Financial_research`
 
-# Financial Research Skill v0.32
+# Financial Research Skill v0.33
 
-> **v0.32 (current) — a defect patch, not a feature iteration.** It closes a currency-unit
+> **v0.33 (current) — the Important Notice.** An outermost-layer addition: a per-stock
+> section covering the two factors the ranking framework structurally *cannot* measure —
+> the **expectations bar** and the **sentiment cycle** — each backed by evidence retrieved
+> in the existing macro subsystem, with references cited.
+> - **It sits outside every layer, and changes nothing.** The composite ranks; the v0.31
+>   overlay may demote a tier; **this notice touches neither.** It never enters `Q''`, `C`,
+>   the composite, `rankings.json` or `coherence.json`. Delete the section and every rank,
+>   tier and score is bit-for-bit identical — the same reversibility property v0.31 holds,
+>   stated one layer further out.
+> - **Why outside, rather than a score.** Both factors are genuinely unquantifiable *in this
+>   tool*: the backtest was removed in v0.2, so there is nothing to calibrate "is the market
+>   overheated" against. Inventing a number would be exactly the false precision the honest-
+>   framing policy exists to prevent — and a valuation tilt would systematically demote
+>   semiconductor/AI names, precisely the names the HK channel surfaces most. A **sourced
+>   notice is the only truthful form available.**
+> - **What the framework is blind to.** The quality axis is entirely backward-looking: a
+>   company that has beaten for eight straight quarters with three years of growth already in
+>   the price, and a company with identical ROE that nobody expects anything from, **score the
+>   same on `Q`**. `EV/EBITDA` does not help — it is a screen gate only, never scored, and it
+>   is an absolute threshold rather than a position within the stock's own history.
+> - **Sector-level evidence, per-stock attribution.** "The expectations bar for semiconductors
+>   / AI infrastructure has been raised" is corroborable in Reuters/WSJ/BlackRock/Fed material.
+>   "The market's expectations for AVGO specifically are too high" is not — single-stock
+>   sentiment assertions are the **highest-fabrication-risk content in this skill**, fluent and
+>   trivially invented. So the notice retrieves at group level and narrates by attributing the
+>   stock to its group. **The C2 two-source hard gate is never relaxed here**; where evidence
+>   is thin the entry says so explicitly, which is itself information.
+> - **Constructive, not defensive.** It is not a second disclaimer — the standing verbatim one
+>   already covers that. Its argument is the point: **Tier A means highest-ranked on the
+>   measurable dimensions, and precisely for that reason such a name is more likely already
+>   fully priced. The two readings must be held together.** Stated once at the section head,
+>   never per stock.
+> - **No new retrieval scope.** M1 was already bound to the post-screen universe's industries;
+>   v0.33 adds a *facet* to that retrieval, not a scope. Per-stock retrieval is out of scope.
+> - **Unchanged:** the composite, `Q''`, `C`, rank order, tiers, the v0.31 overlay, the screen,
+>   the input gates and the existing disclaimer.
+
+> **v0.32 — a defect patch, not a feature iteration.** It closes a currency-unit
 > hole that v0.3's days-to-liquidate metric silently opened, and adds two input-review
 > warnings the existing gates do not produce. It is kept as a separate version line so a
 > reader can tell which changes *added* behaviour and which *corrected* it.
@@ -245,7 +282,8 @@ If fewer than 7 PDFs are supplied, validation stops the pipeline and asks the us
 | --------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
 | Layer 1 — Extraction       | 0–1e        | `validate_uploads.py`, `extract_holdings.py`, `layer1_report.py`                                                                   |
 | Layer 2 — Overlap & Screen | 2a–2g       | `overlap_analysis.py`, `providers/registry.py`, `quality_screen.py`, `compute_scores.py`, `crowding_signal.py`, `layer2_report.py` |
-| Macro (v0.31: after 2d)     | M1, M1b      | Claude directed-fetch → `macro_checkpoint.md` + `macro_factors.json`, `sector_logic.json`                                          |
+| Macro (v0.31: after 2d)     | M1, M1b      | Claude directed-fetch → `macro_checkpoint.md` (v0.33: **+ expectations/sentiment facet**) + `macro_factors.json`, `sector_logic.json` |
+| Important Notice (v0.33)    | H1           | Claude → `important_notice_checkpoint.md` — outside every scoring layer; rendered after the appendices, before methodology         |
 | Layer 3 — Ranking & Advice | 3a–3d + PDF | `build_rankings.py`, `etf_relative_strength.py`, `coherence_audit.py`, `layer3_report.py`, `build_report.py`                       |
 
 Full orchestration logic and error recovery rules: [`SKILL.md`](./SKILL.md).
@@ -277,7 +315,7 @@ report. If removing it breaks anything downstream or changes a rank, the impleme
 
 ```
 .
-├── SKILL.md                          # Skill orchestration (≤150 lines)
+├── SKILL.md                          # Skill orchestration: pipeline, error tree, constraints
 ├── README.md
 ├── requirements.txt
 ├── assets/
@@ -290,7 +328,10 @@ report. If removing it breaks anything downstream or changes a rank, the impleme
 │   ├── providers.md                  # Provider routing, EDGAR contract (B1 email), confidence
 │   ├── honest_framing.md             # Framing template for Layer 3 (bias stated once)
 │   ├── macro_appendix.md             # v0.3 macro/expectations appendices + source gate
-│   └── coherence_overlay.md          # v0.31 overlay: inputs, verdicts, invariants, deferrals
+│   │                                 #   (v0.33: M1 gains the expectations/sentiment facet)
+│   ├── coherence_overlay.md          # v0.31 overlay: inputs, verdicts, invariants, deferrals
+│   └── important_notice.md           # v0.33 Part H: expectations bar + sentiment cycle,
+│                                     #   sourcing rules, guardrails, what the gate enforces
 ├── scripts/                          # Deterministic computation (no LLM calls)
 │   ├── validate_uploads.py           # + v0.32 G3 regional advisory (non-blocking)
 │   ├── extract_holdings.py           # + v0.32 currency normalisation + thin-exposure flag
@@ -301,10 +342,11 @@ report. If removing it breaks anything downstream or changes a rank, the impleme
 │   ├── build_rankings.py             # Sole author of composite + rank order
 │   ├── etf_relative_strength.py      # v0.31 E2.3: RS vs SPY, fixed 3M/6M/12M windows
 │   ├── coherence_audit.py            # v0.31 Stage 3a-bis: the overlay → coherence.json
-│   ├── build_report.py
+│   ├── build_report.py               # + v0.33 notice placement (after appendices, pre-method)
 │   ├── quality_screen.py             # + v0.31 post-screen industry census (M1 scope)
 │   ├── crowding_signal.py            # A2 days-to-liquidate (v0.32: USD-only AUM) + A3 diversity
-│   ├── check_checkpoints.py          # v0.3 D4 gate + v0.31 overlay + v0.32 section checks
+│   ├── check_checkpoints.py          # v0.3 D4 gate + v0.31 overlay + v0.32 sections
+│   │                                 #   + v0.33 Part H notice content rules
 │   ├── layer1_report.py              # v0.32 G4: consolidated input-review block
 │   ├── layer2_report.py              # + currency exclusions + thin-exposure count
 │   ├── layer3_report.py              # Tier grouping applies demotions; rank display unchanged
@@ -422,8 +464,11 @@ python scripts/layer3_report.py \
   --coherence /home/claude/work/coherence.json \
   --out /home/claude/work/layer3_ranked_advice.md
 
-# Macro gate — deterministic checkpoint review (v0.3 D4 + v0.31 overlay invariants)
-# coherence.json is checked when present; --require-coherence makes it mandatory.
+# Macro gate — deterministic checkpoint review (v0.3 D4 + v0.31 overlay invariants
+# + v0.33 Part H notice rules: two-source citations, per-entry sourcing, no verdict
+# vocabulary, no ticker-bound sentiment claim, constructive register).
+# coherence.json and important_notice_checkpoint.md are checked when present;
+# --require-coherence / --require-important-notice make them mandatory.
 python scripts/check_checkpoints.py /home/claude/work/
 
 # Stage 4 — PDF assembly (+ copies all checkpoint .md to the outputs dir, D5)
@@ -455,6 +500,7 @@ The layered `.md` checkpoints, the overlay's audit trail, and a final English-on
 | `macro_checkpoint.md`             | v0.3 — central-bank-anchored macro/sector view, per-sentence attribution     |
 | `expectations_checkpoint.md`      | v0.3 — per-stock best/avg/worst scenarios driven by the macro view           |
 | `appendix3_consensus_warning.md`  | v0.3 — over-consensus & false-theme warning + fund-style remediation         |
+| `important_notice_checkpoint.md`  | v0.33 — per-stock expectations bar + sentiment cycle, group-attributed and sourced; enters no score |
 | `coherence.json`                  | v0.31 — per-stock audit: three factor readings, pairwise verdicts, tier delta, contradiction text |
 | `financial_research_report.pdf`   | All of the above, assembled into a denser English PDF (18–26pp ceiling)      |
 
@@ -469,7 +515,7 @@ itself is what gets shipped.
 
 ---
 
-## Key design decisions (v1 → v0.2 → v0.3 → v0.31 → v0.32)
+## Key design decisions (v1 → v0.2 → v0.3 → v0.31 → v0.32 → v0.33)
 
 
 | Decision        | v1                                                   | v0.2                                                 | v0.3                                                              | v0.31                                                        |
@@ -497,6 +543,18 @@ itself is what gets shipped.
 | Marginal US exposure (20–35%) | invisible; votes like a 95%-US fund | flagged in Layer 1 / 2 / Appendix 3; **vote unchanged** |
 | Regional fund feedback | only at Stage 1c, after the expensive parse | **Stage 0 advisory**, non-blocking; Stage 1c still decides |
 | Input warnings | scattered across sections | **one consolidated input-review block** |
+
+**v0.33 deltas (outermost-layer addition — nothing above changes):**
+
+| Decision | v0.32 | v0.33 |
+| --- | --- | --- |
+| Expectations bar / sentiment cycle | invisible to the framework, and unmentioned | stated as a **measurement boundary**, with sector-level evidence and references |
+| Where it sits | n/a | **outside every layer** — no score, no rank, no tier; removable with bit-for-bit identical numbers |
+| Quantify it? | n/a | **no.** No backtest exists to calibrate "overheated"; a number would be false precision, and a valuation tilt would systematically demote semiconductor/AI names |
+| Evidence granularity | n/a | corroborated at **sector/theme level**, narrated by attributing the stock to its group — never a stock-level sentiment claim |
+| C2 hard gate | ≥2 primary-tier sources | **unchanged, and explicitly not relaxed** for the notice; thin evidence produces an explicit not-found statement |
+| Retrieval scope | M1 bound to post-screen industries | **same scope, one more facet** — no per-stock retrieval |
+| Register | n/a | **constructive, not a second disclaimer**; the "Tier A ≠ best entry" argument stated once at the section head |
 
 ---
 
