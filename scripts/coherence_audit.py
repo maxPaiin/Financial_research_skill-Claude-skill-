@@ -8,6 +8,12 @@ incoherent; incoherence is uncertainty; and in this tool uncertainty is a
 quality defect (v0.3 §0 premise 2). The stock is shown one tier lower with the
 contradiction named — it does NOT move in the ranking.
 
+v0.4 (B7, DEC-4): a fourth, optional check — EXIT LIQUIDITY. Crowding left the
+rank; it returns here as a risk. When the funds' USD-reporting holders would
+need 10 or more trading days of average volume to sell a position
+(crowding_signals.json `is_exit_crowded`), the verdict is `risk`, and a risk
+demotes exactly like a contradiction: one tier, never more, rank untouched.
+
 WHAT IT MAY NOT DO (the invariants that make it non-destructive):
   * `rankings.json` is READ-ONLY. Composite scores, Q'', C and rank order are
     written by 3a and never rewritten here. This script's only output is the
@@ -38,9 +44,12 @@ Inputs:
   --sector-logic   sector_logic.json    — E2.2 three universal questions,
                    instantiated per industry bucket by Claude
   --etf            etf_relative_strength.json from etf_relative_strength.py
+  --crowding       crowding_signals.json (v0.4 B7) — days-to-liquidate per
+                   ticker; absent -> the exit-liquidity check does not run and
+                   every record is exactly what it was without it
   --out            coherence.json
 
-All four inputs except --rankings are optional; each absent input degrades the
+Every input except --rankings is optional; each absent input degrades the
 affected pairs to "insufficient data", never to a verdict.
 
 Output schema — coherence.json:
@@ -51,8 +60,10 @@ Output schema — coherence.json:
      "base_tier": "A", "tier": "B", "tier_delta": -1,
      "factors": {"macro": {...}, "sector_logic": {...}, "etf": {...}},
      "verdicts": [{"pair": "macro_vs_sector", "verdict": "contradiction",
-                   "statement": "..."}, ...],
+                   "statement": "..."}, ...,
+                  {"pair": "exit_liquidity", "verdict": "risk", "statement": "..."}],
      "contradictions": ["..."],
+     "risks": ["..."],
      "divergence_flag": {"divergence": "negative", "explanation_required": true},
      "insufficient_data": [...],
      "commentary": "..."}
@@ -82,6 +93,7 @@ _ROC_DIRECTIONS = {"improving": 1, "neutral": 0, "deteriorating": -1}
 # Verdict vocabulary.
 COHERENT = "coherent"
 CONTRADICTION = "contradiction"
+RISK = "risk"                    # v0.4 B7: exit liquidity
 INSUFFICIENT = "insufficient_data"
 NOT_APPLICABLE = "not_applicable"
 
@@ -261,6 +273,30 @@ def verdict_macro_vs_etf(
     return COHERENT, "Sector relative strength is consistent with the central-bank read."
 
 
+# --- v0.4 B7: exit liquidity -------------------------------------------------
+
+def verdict_exit_liquidity(signal: Optional[dict]) -> tuple[str, str]:
+    """risk when the USD-reporting holders would need >= 10 days to exit."""
+    dtl = (signal or {}).get("days_to_liquidate")
+    if not isinstance(dtl, (int, float)):
+        return INSUFFICIENT, (
+            "Exit liquidity: no days-to-liquidate figure — no holder reports AUM in "
+            "USD, or no average daily volume.")
+    n_usd = (signal or {}).get("n_usd_aum_holders")
+    n_all = (signal or {}).get("n_holders")
+    who = (f"the {n_usd} of {n_all} holders that report AUM in USD" if n_usd and n_all
+           else "the holders that report AUM in USD")
+    if signal.get("is_exit_crowded"):
+        return RISK, (
+            f"Exit liquidity: {who} would need {dtl:.1f} trading days of average volume "
+            "to sell their positions together — at or above the 10-day line (an "
+            "uncalibrated threshold). Holders reporting in other currencies are not "
+            "counted.")
+    return COHERENT, (
+        f"Exit liquidity: {who} would need {dtl:.1f} trading days to sell together — "
+        "below the 10-day line.")
+
+
 # --- E3.2 adjustment -------------------------------------------------------
 
 def demote(base_tier: str, delta: int) -> str:
@@ -289,8 +325,13 @@ def audit_stock(
     macro: Optional[dict],
     sector_logic: dict,
     etf_data: dict,
+    crowding: Optional[dict] = None,
 ) -> dict:
-    """Produce one coherence record for one ranked stock. Pure function."""
+    """Produce one coherence record for one ranked stock. Pure function.
+
+    `crowding` maps ticker -> crowding_signals.json row; None means the
+    exit-liquidity check did not run (the record then carries no such verdict).
+    """
     ticker = row.get("ticker")
     rank = int(row.get("rank") or 0)
     industry = row.get("industry")
@@ -310,12 +351,15 @@ def audit_stock(
         ("sector_vs_etf", verdict_sector_vs_etf(direction, rs_state, industry)),
         ("macro_vs_etf", verdict_macro_vs_etf(stance, rs_state, sensitivity, industry)),
     ]
+    if crowding is not None:
+        pairs.append(("exit_liquidity", verdict_exit_liquidity(crowding.get(ticker or ""))))
     verdicts = [
         {"pair": name, "verdict": verdict, "statement": statement}
         for name, (verdict, statement) in pairs
     ]
 
     contradictions = [v["statement"] for v in verdicts if v["verdict"] == CONTRADICTION]
+    risks = [v["statement"] for v in verdicts if v["verdict"] == RISK]
 
     insufficient: list[str] = []
     if stance == INSUFFICIENT:
@@ -327,9 +371,11 @@ def audit_stock(
             f"ETF relative strength: {sector_rs.get('note') or 'unavailable'}"
         )
 
-    # E3.2: one tier down if ANY pair contradicts; capped at one regardless of
-    # how many do. Insufficient data never moves the tier in either direction.
-    tier_delta = -1 if contradictions else 0
+    # E3.2: one tier down if ANY pair contradicts or the exit-liquidity check
+    # finds a risk (B7); capped at one regardless of how many do. Insufficient
+    # data never moves the tier in either direction — and a missing liquidity
+    # figure is reported in its own verdict, not as a gap in the three readings.
+    tier_delta = -1 if (contradictions or risks) else 0
     tier = demote(base_tier, tier_delta)
 
     # E2.3: divergence is a flag plus a REQUIRED explanation, never a mechanical
@@ -375,9 +421,11 @@ def audit_stock(
         },
         "verdicts": verdicts,
         "contradictions": contradictions,
+        **({"risks": risks} if crowding is not None else {}),
         "divergence_flag": divergence_flag,
         "insufficient_data": insufficient,
-        "commentary": _commentary(contradictions, insufficient, divergence_flag, tier, base_tier),
+        "commentary": _commentary(contradictions + risks, insufficient, divergence_flag,
+                                  tier, base_tier),
     }
 
 
@@ -420,20 +468,25 @@ def audit(
     macro: Optional[dict],
     sector_logic: Optional[dict],
     etf_data: Optional[dict],
+    crowding: Optional[dict] = None,
 ) -> dict:
+    by_ticker = ({r["ticker"]: r for r in crowding.get("signals", []) if r.get("ticker")}
+                 if isinstance(crowding, dict) else None)
     records = [
-        audit_stock(row, macro, sector_logic or {}, etf_data or {})
+        audit_stock(row, macro, sector_logic or {}, etf_data or {}, by_ticker)
         for row in rankings.get("ranked", [])
     ]
     return {
         "generated": date.today().isoformat(),
-        "overlay": "v0.31 coherence overlay (demotion-only, capped at one tier)",
+        "overlay": "coherence overlay (demotion-only, capped at one tier)"
+                   + ("; exit-liquidity risk check" if by_ticker is not None else ""),
         "benchmark": (etf_data or {}).get("benchmark"),
         "windows": (etf_data or {}).get("windows"),
         "n_records": len(records),
         "n_demoted": sum(1 for r in records if r["tier_delta"] < 0),
         "n_insufficient": sum(1 for r in records if r["insufficient_data"]),
         "n_divergence_flags": sum(1 for r in records if r["divergence_flag"]),
+        "n_exit_liquidity_risks": sum(1 for r in records if r.get("risks")),
         "records": records,
     }
 
@@ -454,11 +507,14 @@ def main():
     ap.add_argument("--macro", help="macro_factors.json — structured E2.1 fields from M1")
     ap.add_argument("--sector-logic", help="sector_logic.json — E2.2 per-industry answers")
     ap.add_argument("--etf", help="etf_relative_strength.json from etf_relative_strength.py")
+    ap.add_argument("--crowding", help="crowding_signals.json (v0.4 B7) — enables the "
+                                       "exit-liquidity risk check")
     ap.add_argument("--out", required=True, help="Output coherence.json (side-car)")
     args = ap.parse_args()
 
     rankings = json.loads(Path(args.rankings).read_text(encoding="utf-8"))
-    out = audit(rankings, _load(args.macro), _load(args.sector_logic), _load(args.etf))
+    out = audit(rankings, _load(args.macro), _load(args.sector_logic), _load(args.etf),
+                _load(args.crowding))
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -466,7 +522,8 @@ def main():
     print(
         f"Coherence audit: {out['n_records']} records, {out['n_demoted']} demoted, "
         f"{out['n_insufficient']} with insufficient data, "
-        f"{out['n_divergence_flags']} divergence flags -> {out_path} "
+        f"{out['n_divergence_flags']} divergence flags, "
+        f"{out['n_exit_liquidity_risks']} exit-liquidity risks -> {out_path} "
         f"(rankings.json untouched)"
     )
 

@@ -388,10 +388,10 @@ def check_coherence(path: Path) -> list[str]:
                 f"{path.name}: {tkr} was PROMOTED {base} -> {tier} — the overlay "
                 "may never promote (E0.1)."
             )
-        if r.get("tier_delta") == -1 and not r.get("contradictions"):
+        if r.get("tier_delta") == -1 and not (r.get("contradictions") or r.get("risks")):
             problems.append(
-                f"{path.name}: {tkr} was demoted without a named contradiction "
-                "(E3.2 requires the contradiction to be stated)."
+                f"{path.name}: {tkr} was demoted without a named contradiction or "
+                "risk (E3.2 / B7 require it to be stated)."
             )
     return problems
 
