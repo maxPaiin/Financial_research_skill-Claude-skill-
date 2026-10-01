@@ -6,6 +6,16 @@ appendices it feeds. It is a reader for Claude and humans — the macro stages
 scripts involved are `check_checkpoints.py` (deterministic gate) and
 `build_report.py` (renders the appendix `.md` files into the PDF).
 
+## Contents
+
+1. [M1 — Macro fetch (central-bank-anchored, directed-fetch) → `macro_checkpoint.md`](#m1--macro-fetch-central-bank-anchored-directed-fetch--macro_checkpointmd)
+2. [C2 — Source integrity: primary-first + cross-source corroboration HARD gate](#c2--source-integrity-primary-first--cross-source-corroboration-hard-gate)
+3. [C3 — Appendix 1+2 (bundled): per-stock scenario expectations, macro-driven → `expectations_checkpoint.md`](#c3--appendix-12-bundled-per-stock-scenario-expectations-macro-driven--expectations_checkpointmd)
+4. [C4 — Appendix 3: over-consensus / false-theme warning + input remediation → `appendix3_consensus_warning.md`](#c4--appendix-3-over-consensus--false-theme-warning--input-remediation--appendix3_consensus_warningmd)
+5. [Stage 1a — reporting currency (v0.32 G1.1, required field)](#stage-1a--reporting-currency-v032-g11-required-field)
+6. [Stage 1a — fund-style inference (shared dependency of A3 and Appendix 3)](#stage-1a--fund-style-inference-shared-dependency-of-a3-and-appendix-3)
+7. [Checkpoint discipline (D4/D5)](#checkpoint-discipline-d4d5)
+
 > **v0.31 amendment (E0.2) — M1 moves earlier.** M1 now runs **after Stage 2d**
 > (post-screen, pre-rank) instead of after 3a, and its sector scope is anchored
 > to the **post-screen universe's industries** (`passed_industries` in

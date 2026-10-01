@@ -8,6 +8,13 @@ actual run numbers and following this template.
 
 ---
 
+## Contents
+
+1. [What to include (mandatory)](#what-to-include-mandatory)
+2. [What to prohibit (no exceptions)](#what-to-prohibit-no-exceptions)
+3. [Template (Claude fills in the bracketed fields)](#template-claude-fills-in-the-bracketed-fields)
+4. [Where the framing must appear](#where-the-framing-must-appear)
+
 ## What to include (mandatory)
 
 The framing paragraph must explicitly state all four biases below, with the specific

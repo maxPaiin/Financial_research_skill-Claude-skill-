@@ -13,6 +13,23 @@ Claude and humans. The deterministic half lives in `scripts/coherence_audit.py` 
 
 ---
 
+## Contents
+
+1. [Why an overlay rather than a third scoring axis](#why-an-overlay-rather-than-a-third-scoring-axis)
+2. [The two amendments to v0.3](#the-two-amendments-to-v03)
+   - [1. M1 moves from after-3a to after-2d, re-anchored to the post-screen universe](#1-m1-moves-from-after-3a-to-after-2d-re-anchored-to-the-post-screen-universe)
+   - [2. Tiers stop being a display slice](#2-tiers-stop-being-a-display-slice)
+3. [Stage 3a-bis — the audit](#stage-3a-bis--the-audit)
+4. [The three inputs](#the-three-inputs)
+   - [E2.1 Macro factors — structure what M1 already fetched](#e21-macro-factors--structure-what-m1-already-fetched)
+   - [E2.2 Sector logic — three universal questions](#e22-sector-logic--three-universal-questions)
+   - [E2.3 ETF check — divergence detection, not confirmation](#e23-etf-check--divergence-detection-not-confirmation)
+5. [The verdict and the tier adjustment](#the-verdict-and-the-tier-adjustment)
+6. [The exit-liquidity check (v0.4)](#the-exit-liquidity-check-v04)
+7. [Reporting the overlay](#reporting-the-overlay)
+   - [Mandatory limitations disclosure](#mandatory-limitations-disclosure)
+8. [Deferred (explicitly out of scope)](#deferred-explicitly-out-of-scope)
+
 ## Why an overlay rather than a third scoring axis
 
 `0.4·Q + 0.4·C + 0.2·Macro` was considered and rejected:
@@ -68,9 +85,9 @@ point** and then adjusts it **downward only**.
 **Rank order itself never changes.** A stock ranked #3 whose macro and sector
 logic contradict each other stays at **rank #3** and is shown in **Tier B**,
 with the contradiction named on its card. Rank remains a purely quantitative,
-fully traceable product of the composite; tier carries the qualitative judgment.
-A reader can see *"ranked #3 by the composite, demoted to B because X
-contradicts Y"* — far more auditable than folding macro into the score, where it
+fully traceable product of the ranking (v0.4: consensus band, then `Q''`); tier
+carries the qualitative judgment. A reader can see *"ranked #3 by the ranking,
+demoted to B because X contradicts Y"* — far more auditable than folding macro into the score, where it
 could never be separated out again.
 
 ---
@@ -283,7 +300,7 @@ verdict, `exit_liquidity`:
 - The tier-grouping section notes which stocks were demoted into it and from
   where.
 - The methodology section documents the overlay **once** (not per card): what it
-  checks, that it is demotion-only, that it never alters rank or the composite,
+  checks, that it is demotion-only, that it never alters rank, `Q''` or the consensus,
   and the limitations below. Per-card text carries only that stock's specific
   contradiction or divergence explanation.
 

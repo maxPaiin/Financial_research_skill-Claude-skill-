@@ -7,6 +7,19 @@ All formulas, weights, and thresholds quoted here reference their canonical sour
 
 ---
 
+## Contents
+
+1. [What the skill does](#what-the-skill-does)
+2. [v0.3 design premises (locked)](#v03-design-premises-locked)
+3. [v0.31 additions (coherence overlay)](#v031-additions-coherence-overlay)
+4. [v0.32 (defect patch — currency integrity + input-review warnings)](#v032-defect-patch--currency-integrity--input-review-warnings)
+5. [v0.33 (Important Notice — the measurement boundary, made explicit and sourced)](#v033-important-notice--the-measurement-boundary-made-explicit-and-sourced)
+6. [v0.34 (corrections)](#v034-corrections)
+7. [v0.4 (consensus signal v2)](#v04-consensus-signal-v2)
+8. [What the skill is NOT](#what-the-skill-is-not)
+9. [Known biases (must be disclosed in every report)](#known-biases-must-be-disclosed-in-every-report)
+10. [Why these choices](#why-these-choices)
+
 ## What the skill does
 
 Given 7–11 HKMA-approved global fund prospectus PDFs distributed through Hong Kong private

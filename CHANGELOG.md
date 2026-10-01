@@ -49,6 +49,40 @@ v0.34, below. Entries for the consensus signal (Phase B), the token and runtime 
   liquidity and the currency gate"; the overlay, methodology, framing and Appendix 3
   references updated.
 
+### Token and runtime architecture (Phase C)
+
+The goal is a run whose context holds decisions, not data (F17), and that runs the same on
+claude.ai and in Claude Code CLI (F18).
+
+- **Portable paths (C1).** `scripts/paths.py` is the only place that names a runtime
+  directory: the claude.ai sandbox mounts, or `./fr_work`, `./fr_outputs`, `./fr_uploads` under
+  the CLI, each overridable by an environment variable. `TestNoRuntimePathLiterals` keeps it so.
+- **One .zip in (C2).** Uploaded PDFs are placed into the conversation context; an archive is
+  not. `validate_uploads.py` extracts the .zip and rejects nested archives, paths that climb
+  out of it and duplicate names. A folder of PDFs still works on the CLI.
+- **Scripts read the factsheets (C3).** `extract_candidates.py` (pdfplumber) writes the
+  candidates, a summary of at most 15 lines per fund and a draft `holdings.json`; a field it
+  cannot read is null and flagged with its exact correction path. Claude reads the summary
+  only, renders the one page behind a flag (`render_page.py`) and corrects it with
+  `apply_review.py`. Tests build their own factsheet PDFs; no fund PDF is ever opened.
+- **Alias learning loop (C4).** Name→ticker pairings seen printed on a factsheet are proposed
+  in `new_aliases.json`, which the run never reads; the maintainer reviews them with
+  `scripts/dev/review_aliases.py` before they reach `references/ticker_aliases.json`.
+- **M1 and M1b after the ranking (C5).** The ranking reads no macro input, so M1 no longer has
+  to run before it; it now covers only the ranked names' industries, which costs far less
+  retrieval than the whole post-screen universe. Sources and the two-source gate are unchanged.
+- **The phase runner (C6).** `run_phase.py p1`–`p6` run the deterministic stages, one call per
+  phase, each printing at most 15 lines and the next step; `status` names stale phases;
+  `--replay-dir` runs offline from recorded inputs. The dry run found two defects, both fixed:
+  a ±100% sanity bound that rejected a real ROE (Apple, 163.9%; now ±1000%), and a local
+  variable in `build_report.main()` that shadowed `paths.work_dir()`.
+- **Resume bundle (C7).** After every phase, `work_bundle.zip` in the outputs directory carries
+  the work directory's checkpoints and JSON — never PDFs, never the contact email — and
+  `bundle.py load` continues a run in a new session, so one run can span two usage windows.
+- **SKILL.md restructured (C8).** 389 lines, wrapped at 120 characters (the longest line was
+  1,222), the context-budget rules first, a "Stage → reference file to read now" table one level
+  deep, and a Contents list in every reference longer than 100 lines. Tests enforce all four.
+
 ---
 
 ## v0.34 — corrections (2026-10-01)

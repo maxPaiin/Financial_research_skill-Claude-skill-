@@ -8,14 +8,29 @@ involved are `check_checkpoints.py` (deterministic gate) and `build_report.py`
 (placement in the PDF).
 
 > **Governing principle: this section sits outside every existing layer.**
-> The composite (v0.3) ranks. The coherence overlay (v0.31) may demote a tier.
-> **The notice touches neither.** It never enters `Q''`, `C`, `composite`,
-> `rankings.json` or `coherence.json`; it changes no score, no rank and no tier.
-> Deleting it must leave every ranking, tier and score **bit-for-bit
-> unchanged** — the same reversibility property v0.31 holds, stated one layer
-> further out.
+> The ranking ranks (v0.4: consensus band, then `Q''`). The coherence overlay
+> (v0.31) may demote a tier. **The notice touches neither.** It never enters
+> `Q''`, the consensus, `rankings.json` or `coherence.json`; it changes no
+> score, no rank and no tier. Deleting it must leave every ranking, tier and
+> score **bit-for-bit unchanged** — the same reversibility property v0.31
+> holds, stated one layer further out.
 
 ---
+
+## Contents
+
+1. [H0. Why the outermost position is correct, not a compromise](#h0-why-the-outermost-position-is-correct-not-a-compromise)
+   - [H0.2 Purpose — balance of thinking, not a disclaimer](#h02-purpose--balance-of-thinking-not-a-disclaimer)
+2. [H1. The two factors, and why the framework cannot see them](#h1-the-two-factors-and-why-the-framework-cannot-see-them)
+3. [H2. Evidence sourcing — sector-level evidence, per-stock attribution](#h2-evidence-sourcing--sector-level-evidence-per-stock-attribution)
+   - [H2.1 Retrieve and corroborate at the sector/theme level; attribute to the stock's group](#h21-retrieve-and-corroborate-at-the-sectortheme-level-attribute-to-the-stocks-group)
+   - [H2.2 The C2 hard gate does not relax here](#h22-the-c2-hard-gate-does-not-relax-here)
+   - [H2.3 Cite references](#h23-cite-references)
+   - [H2.4 Cost is contained — no new retrieval scope](#h24-cost-is-contained--no-new-retrieval-scope)
+4. [H3. The two guardrails](#h3-the-two-guardrails)
+5. [H4. Section structure and placement](#h4-section-structure-and-placement)
+6. [What `check_checkpoints.py` enforces on this file](#what-check_checkpointspy-enforces-on-this-file)
+7. [What this section does NOT change](#what-this-section-does-not-change)
 
 ## H0. Why the outermost position is correct, not a compromise
 
@@ -255,8 +270,8 @@ than merely avoiding the banned strings.
 
 ## What this section does NOT change
 
-- `rankings.json`, `coherence.json`, composite weights, `Q''`, `C`, rank order,
-  tiers — all untouched.
+- `rankings.json`, `coherence.json`, `Q''`, the consensus (`c_share`, bands), rank
+  order, tiers — all untouched.
 - The v0.31 overlay — the notice is **not** a fourth coherence input and never
   triggers a demotion.
 - The screen, the thresholds, the input gates — untouched.
