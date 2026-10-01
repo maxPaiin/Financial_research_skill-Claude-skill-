@@ -24,6 +24,7 @@ from pathlib import Path
 # than reading crowding_signals.json — but it must use the same definition, so
 # the functions are imported instead of reimplemented.
 from crowding_signal import fund_style_map, homogeneity_report
+from extract_holdings import is_accepted
 
 
 def _currency_label(fund: dict) -> str:
@@ -108,6 +109,12 @@ def _input_review(data: dict, stage0: dict | None) -> list[str]:
     funds = data.get("funds", [])
     valid_funds = [f for f in funds if not f.get("rejected")]
     rejected_funds = [f for f in funds if f.get("rejected")]
+    # v0.4 B1: identical share classes count once; every count below that is
+    # about the input set's opinions or AUM uses the merged set.
+    accepted = [f for f in funds if is_accepted(f)]
+    merged = [f for f in funds if f.get("merged_into")]
+    cosines = {m.get("merged"): m.get("cosine") for m in data.get("merged_funds") or []}
+    names = {f.get("fund_id"): f.get("fund_name", "unknown") for f in funds}
 
     lines = ["## Input review", ""]
     lines += ["A single review of the funds you submitted. Everything below is a "
@@ -125,6 +132,15 @@ def _input_review(data: dict, stage0: dict | None) -> list[str]:
                       f"{f.get('rejection_reason')}"]
     else:
         lines += ["- Funds rejected: 0"]
+    if merged:
+        lines += [f"- Identical share classes merged: {len(merged)} — each counts once:"]
+        for f in merged:
+            cos = cosines.get(f["fund_id"])
+            cos_txt = f", cosine {cos:.4f}" if isinstance(cos, (int, float)) else ""
+            lines += [f"  - {f['fund_id']} ({f.get('fund_name', 'unknown')}) merged into "
+                      f"{f['merged_into']} ({names.get(f['merged_into'])}): identical US "
+                      f"holdings and the same asof{cos_txt}"]
+    lines += [f"- Independent funds in this run: {len(accepted)}"]
     lines += [""]
 
     # --- A6: the SEC listing check ---
@@ -132,10 +148,10 @@ def _input_review(data: dict, stage0: dict | None) -> list[str]:
 
     # --- G1: reporting currency + exit-liquidity exclusions ---
     census: dict[str, int] = {}
-    for f in valid_funds:
+    for f in accepted:
         code = f.get("currency") if isinstance(f.get("currency"), str) else None
         census[code or "unstated"] = census.get(code or "unstated", 0) + 1
-    excluded = [f for f in valid_funds if f.get("currency") != "USD"]
+    excluded = [f for f in accepted if f.get("currency") != "USD"]
 
     lines += ["### Reporting currency", ""]
     census_str = ", ".join(f"{k}: {v}" for k, v in
@@ -146,7 +162,7 @@ def _input_review(data: dict, stage0: dict | None) -> list[str]:
             f"{f['fund_id']} ({_currency_label(f)})" for f in excluded
         )
         lines += [
-            f"- ⚠ {len(excluded)} of {len(valid_funds)} accepted fund(s) do not report "
+            f"- ⚠ {len(excluded)} of {len(accepted)} accepted fund(s) do not report "
             f"AUM in USD: {names}.",
             "- Those funds are **excluded from the days-to-liquidate (exit-liquidity) "
             "aggregate**, because average daily traded value is always USD and mixing "
@@ -162,11 +178,11 @@ def _input_review(data: dict, stage0: dict | None) -> list[str]:
     lines += [""]
 
     # --- G2: thin US exposure ---
-    thin = [f for f in valid_funds if f.get("thin_us_exposure")]
+    thin = [f for f in accepted if f.get("thin_us_exposure")]
     lines += ["### US-exposure depth", ""]
     if thin:
         lines += [
-            f"- ⚠ {len(thin)} of {len(valid_funds)} accepted fund(s) hold only "
+            f"- ⚠ {len(thin)} of {len(accepted)} accepted fund(s) hold only "
             "20–35% of AUM in US equity after filtering:",
         ]
         for f in thin:
@@ -200,7 +216,7 @@ def _input_review(data: dict, stage0: dict | None) -> list[str]:
     # --- A3: style distribution / homogeneity, carried here so the input review
     # and the consensus caveat sit together (G4). ---
     style_by_fund = fund_style_map(data)
-    homo = homogeneity_report(style_by_fund, len(valid_funds))
+    homo = homogeneity_report(style_by_fund, len(accepted))
     lines += ["### Input-set style distribution", ""]
     if not homo.get("labelled"):
         lines += ["- Fund styles were not labelled this run; style-diversity weighting "
@@ -246,6 +262,8 @@ def build_layer1_md(data: dict, stage0: dict | None = None) -> str:
             flags.append("thin US exposure")
         if f.get("currency") != "USD":
             flags.append("AUM excluded from exit-liquidity (non-USD)")
+        if f.get("merged_into"):
+            flags.append(f"merged into {f['merged_into']} (identical share class)")
         lines += [
             f"| {f['fund_id']} | {f.get('fund_name', '')} | {f.get('issuer', '')} "
             f"| {f.get('asof', '')} "

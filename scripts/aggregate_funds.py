@@ -10,6 +10,8 @@ import argparse
 from pathlib import Path
 from collections import defaultdict
 
+from extract_holdings import is_accepted
+
 
 def weighted_avg(values_with_weights: list[tuple]) -> float | None:
     """Weighted average ignoring None values; return None if no valid data."""
@@ -35,7 +37,7 @@ def main():
     fund_aggregates = []
 
     for fund in holdings.get("funds", []):
-        if fund.get("rejected"):
+        if not is_accepted(fund):
             continue
 
         fund_holdings = fund.get("holdings_us", [])

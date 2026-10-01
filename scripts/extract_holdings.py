@@ -11,6 +11,10 @@ and produces:
   - Per-fund `thin_us_exposure` flag (20–35% of AUM in US equity) — v0.32 G2
   - unique_universe array with n_funds_holding, weights, avg_weight, etc.
   - pit_snapshot_info for each fund
+  - v0.4 B1: identical share classes merged — two accepted funds whose US-sleeve
+    weight vectors have cosine >= 0.999 and the same asof are one fund; the
+    lower fund_id is kept (`merged_with`), the other is marked `merged_into`
+    and no longer counts as a separate opinion anywhere downstream
 
 Input shape (written by Claude at Stage 1a):
 {
@@ -34,6 +38,7 @@ Input shape (written by Claude at Stage 1a):
 
 import sys
 import json
+import math
 import re
 import argparse
 from pathlib import Path
@@ -138,6 +143,68 @@ def normalize_currency(raw) -> str | None:
     if _ISO4217_RE.match(key):
         return key
     return None
+
+
+# --- v0.4 B1: identical-fund merge ---------------------------------------------
+# Cosine >= 0.999 between two US-sleeve weight vectors is numerical identity:
+# two share classes (USD / HKD, accumulating / distributing) of one fund. It is
+# not a tuning parameter — near-duplicates are left to the independence
+# weighting in consensus_signal.py, which shares their weight approximately.
+_IDENTICAL_COSINE = 0.999
+
+
+def is_accepted(fund: dict) -> bool:
+    """Accepted at Stage 1c and not merged into an identical share class."""
+    return bool(fund.get("fund_id")) and not fund.get("rejected") and not fund.get("merged_into")
+
+
+def fund_order_key(fund_id: str) -> tuple:
+    """Natural order for fund ids: F2 before F10."""
+    m = re.match(r"^(\D*)(\d+)(.*)$", str(fund_id or ""))
+    return (m.group(1), int(m.group(2)), m.group(3)) if m else (str(fund_id), 0, "")
+
+
+def cosine_similarity(a: dict[str, float], b: dict[str, float]) -> float:
+    """Cosine of two {ticker: weight} vectors; 0.0 when either is empty."""
+    na = math.sqrt(sum(v * v for v in a.values()))
+    nb = math.sqrt(sum(v * v for v in b.values()))
+    if na == 0 or nb == 0:
+        return 0.0
+    dot = sum(v * b.get(k, 0.0) for k, v in a.items())
+    return max(0.0, min(1.0, dot / (na * nb)))
+
+
+def us_sleeve_vector(fund: dict) -> dict[str, float]:
+    """{ticker: weight} over a fund's kept US rows."""
+    vec: dict[str, float] = {}
+    for h in fund.get("holdings_us", []):
+        tkr, w = h.get("ticker_normalized"), h.get("weight")
+        if tkr and isinstance(w, (int, float)) and not isinstance(w, bool):
+            vec[tkr] = vec.get(tkr, 0.0) + float(w)
+    return vec
+
+
+def merge_identical_funds(data: dict) -> list[dict]:
+    """B1: fold identical share classes into the lower fund_id. Returns the merges."""
+    accepted = sorted((f for f in data.get("funds", []) if is_accepted(f)),
+                      key=lambda f: fund_order_key(f["fund_id"]))
+    vectors = {f["fund_id"]: us_sleeve_vector(f) for f in accepted}
+    merges: list[dict] = []
+    for i, keep in enumerate(accepted):
+        if keep.get("merged_into"):
+            continue
+        for dup in accepted[i + 1:]:
+            if dup.get("merged_into") or dup.get("asof") != keep.get("asof"):
+                continue
+            cos = cosine_similarity(vectors[keep["fund_id"]], vectors[dup["fund_id"]])
+            if cos >= _IDENTICAL_COSINE:
+                dup["merged_into"] = keep["fund_id"]
+                keep.setdefault("merged_with", []).append(dup["fund_id"])
+                merges.append({"kept": keep["fund_id"], "merged": dup["fund_id"],
+                               "cosine": round(cos, 6), "asof": keep.get("asof")})
+    for f in accepted:
+        f.setdefault("merged_with", None)
+    return merges
 
 
 def is_thin_us_exposure(weight_kept: float | None) -> bool:
@@ -292,7 +359,7 @@ def dedupe(holdings_data: dict) -> dict:
         "weights_by_fund": {},
     })
 
-    valid_funds = [f for f in holdings_data.get("funds", []) if not f.get("rejected")]
+    valid_funds = [f for f in holdings_data.get("funds", []) if is_accepted(f)]
 
     for fund in valid_funds:
         fid = fund["fund_id"]
@@ -323,7 +390,7 @@ def add_pit_snapshot_info(holdings_data: dict) -> dict:
     """Stage 1d: Group snapshots by (fund_family, asof) for PIT tracking."""
     pit_info = []
     for fund in holdings_data.get("funds", []):
-        if fund.get("rejected"):
+        if not is_accepted(fund):
             continue
         # Most users supply one snapshot per fund → single_snapshot_mode
         asof = fund.get("asof", "unknown")
@@ -407,6 +474,14 @@ def main():
         )
         sys.exit(1)
 
+    # B1: identical share classes are one fund — one opinion, one AUM.
+    merges = merge_identical_funds(data)
+    for m in merges:
+        print(f"MERGED {m['merged']} into {m['kept']}: identical US holdings "
+              f"(cosine {m['cosine']:.4f}) and the same asof — one fund, two share "
+              "classes; it counts once.", file=sys.stderr)
+    data["merged_funds"] = merges
+
     if args.dedupe:
         data = dedupe(data)
         data = add_pit_snapshot_info(data)
@@ -415,10 +490,11 @@ def main():
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    accepted = [f for f in data.get("funds", []) if not f.get("rejected")]
+    accepted = [f for f in data.get("funds", []) if is_accepted(f)]
     n_thin = sum(1 for f in accepted if f.get("thin_us_exposure"))
     n_non_usd = sum(1 for f in accepted if f.get("currency") != "USD")
     print(f"Funds accepted: {valid_count} | Rejected: {len(rejected_funds)} "
+          f"| Merged share classes: {len(merges)} | Independent funds: {len(accepted)} "
           f"| Thin US exposure: {n_thin} | Non-USD/unstated AUM: {n_non_usd}")
     if args.dedupe:
         print(f"Universe: {data.get('universe_size', 0)} unique US-listed tickers")

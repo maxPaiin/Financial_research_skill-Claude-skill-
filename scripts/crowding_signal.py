@@ -100,6 +100,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from extract_holdings import is_accepted
+
 # Canonical tuning constants — do not duplicate elsewhere.
 # Tuning notes: starting defaults, may be calibrated later.
 _AVG_WEIGHT_THRESHOLD = 0.02    # below this, no crowding discount applies
@@ -226,7 +228,8 @@ def compute(
 
 
 def _accepted_funds(holdings: dict) -> list[dict]:
-    return [f for f in holdings.get("funds", []) if not f.get("rejected") and f.get("fund_id")]
+    # v0.4 B1: a share class merged into its identical twin is not a second fund.
+    return [f for f in holdings.get("funds", []) if is_accepted(f)]
 
 
 def fund_style_map(holdings: dict) -> dict[str, str]:
@@ -399,7 +402,7 @@ def main():
         holdings = json.loads(Path(args.holdings).read_text(encoding="utf-8"))
         aum_by_fund, style_by_fund, currency_report = _fund_maps(holdings)
         thin_report = thin_exposure_report(holdings)
-        n_funds = sum(1 for f in holdings.get("funds", []) if not f.get("rejected"))
+        n_funds = sum(1 for f in holdings.get("funds", []) if is_accepted(f))
 
     adv_by_ticker: dict[str, float] = {}
     if args.fundamentals:
