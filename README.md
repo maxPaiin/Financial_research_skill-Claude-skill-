@@ -1,4 +1,8 @@
-> **Trigger keyword:** `/claude_skill_Financial_research`
+> **Trigger keyword:** `/financial-research`
+>
+> The slash command is the skill's `name`, and Agent Skills names may use only lowercase
+> letters, digits and hyphens and may not contain the reserved words "claude" or
+> "anthropic" — so the v0.33 trigger `/claude_skill_Financial_research` could never resolve.
 
 # Financial Research Skill v0.33
 
@@ -271,6 +275,7 @@ themselves.
 
 | Trigger                                                                                                                                            |
 | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| User runs `/financial-research`.                                                                                                                   |
 | User uploads 7–11 fund prospectus PDFs and asks for analysis.                                                                                     |
 | Phrases:*fund analysis, holdings breakdown, individual-stock scoring, multi-fund comparison, fund prospectus analysis*, "analyze these fund PDFs". |
 
