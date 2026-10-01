@@ -17,7 +17,9 @@ Usage:
 Exit code 0 if every present (and every required) checkpoint passes; 1 otherwise.
 
 v0.31: when `coherence.json` is present it is checked against the overlay's
-hard invariants (demotion-only, one-tier cap, tier == base_tier + delta). It is
+hard invariants (demotion-only, one-tier cap, tier == base_tier + delta; v0.4:
+every demotion names a contradiction or a risk, and every contradiction or risk
+demotes). It is
 deliberately NOT required by default — the overlay must remain removable
 without breaking the gate (reversibility test, E1).
 
@@ -49,15 +51,18 @@ _REQUIRED_SECTIONS: dict[str, list[str]] = {
     "layer1_extraction.md": ["# Layer 1", "## Input review", "## Per-fund extraction"],
     "layer2_screening.md": [
         "## Quality screen results",
-        "## Input-set style homogeneity",
+        # v0.4 B8: how many independent opinions the run holds, and what voted.
+        "## Consensus structure",
+        "## Exit liquidity",
         # v0.32 G1.4: the currency-exclusion statement must accompany the
-        # crowding labels; a NAV-only label alone does not explain itself.
+        # liquidity figures; a missing figure alone does not explain itself.
         "## Reporting currency and the exit-liquidity aggregate",
     ],
     "layer3_ranked_advice.md": [
         "## Methodology disclosure",
+        "Consensus band",
         "Confidence-shrinkage",
-        "exit-crowdedness",
+        "Exit liquidity",
     ],
     "macro_checkpoint.md": [],            # presence + attribution checked below
     "expectations_checkpoint.md": ["Best", "Average", "Worst"],
@@ -331,12 +336,14 @@ def check_file(path: Path, required: list[str],
     if path.name == _NOTICE:
         problems += [f"{path.name}: {p}" for p in _check_notice(text, tickers or [])]
 
-    # C4: Appendix 3 should name fund styles to add (remediation).
+    # C4: Appendix 3 should say how to diversify the input (remediation). v0.4
+    # B8: "replace the lowest-contribution fund with a dissimilar one" counts.
     if path.name == "appendix3_consensus_warning.md":
-        if not re.search(r"\b(add|value|income|dividend|small.?mid|non-?US)\b", text, re.I):
+        if not re.search(r"\b(add|replace|lowest-contribution|dissimilar|value|income|"
+                         r"dividend|small.?mid|non-?US)\b", text, re.I):
             problems.append(
-                "appendix3_consensus_warning.md: no style-remediation language found "
-                "(expected guidance on which fund styles to add) (C4)."
+                "appendix3_consensus_warning.md: no remediation language found "
+                "(expected guidance on which fund to add or replace) (C4)."
             )
 
     problems += [f"{path.name}: {p}" for p in _check_percent_ranges(text)]
@@ -392,6 +399,15 @@ def check_coherence(path: Path) -> list[str]:
             problems.append(
                 f"{path.name}: {tkr} was demoted without a named contradiction or "
                 "risk (E3.2 / B7 require it to be stated)."
+            )
+        # B7/B8: the converse — a contradiction or a risk verdict always demotes
+        # (C stays C, but the delta is still recorded).
+        fired = [v.get("pair") for v in r.get("verdicts") or []
+                 if v.get("verdict") in ("contradiction", "risk")]
+        if fired and r.get("tier_delta") != -1:
+            problems.append(
+                f"{path.name}: {tkr} has a contradiction or risk ({', '.join(map(str, fired))}) "
+                "but no demotion (E3.2 / B7)."
             )
     return problems
 

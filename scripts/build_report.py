@@ -29,9 +29,11 @@ PDF section order (v0.3, §3.4):
       rejections, style distribution)
   6.  Layer 2: Overlap matrix
   7.  Layer 2: Quality screen results
-  8.  Layer 2: Data quality summary + currency exclusions + homogeneity state
-  9.  Layer 3: Ranked watchlist (bias note NOT repeated; high-crowding warning
-      kept; crowding labelled liquidity-inclusive / NAV-only)
+  8.  Layer 2: Data quality summary + consensus structure (v0.4) + exit
+      liquidity (v0.4) + currency exclusions
+  9.  Layer 3: Ranked watchlist (bias note NOT repeated; v0.4 cards: consensus
+      band and votes, exit liquidity with the HIGH CROWDING flag only on an
+      exit-crowded stock; then the benchmark-anchored core holdings)
   10. Layer 3: Tier groupings (v0.31 — tiers may be demoted by the coherence
       overlay; ranks are never changed, and each demotion names its
       contradiction on the card)
@@ -41,8 +43,8 @@ PDF section order (v0.3, §3.4):
       H4.1: after the appendices, before methodology. Its content is per-stock
       but its nature is *how to read the preceding results*, so it follows the
       analysis and precedes the method)
-  14. Methodology disclosure (confidence-shrinkage, days-to-liquidate, gate,
-      v0.31 coherence overlay + its limitations, v0.32 currency-exclusion rule)
+  14. Methodology disclosure (consensus band, confidence-shrinkage, exit
+      liquidity, gate, coherence overlay + its limitations, currency-exclusion rule)
   15. Disclaimer (back)
 
 All Layer 3 content — including the overlay's tier demotions and per-card
@@ -419,11 +421,12 @@ def build_pdf(work_dir: Path, out_path: Path):
     story += [Paragraph(
         "This report presents a ranked watchlist of US-listed equities held across "
         "HKMA-approved global funds distributed through Hong Kong private banking channels. "
-        "Stocks are filtered to US listings only (including ADRs), screened for fundamental "
-        "quality, and ranked by a composite signal combining low-anchor confidence-shrunk "
-        "quality and a style-diversity-weighted, exit-liquidity-aware "
-        "consensus-with-crowding-discount. The top 15 are organized into three tiers. "
-        "All methodology limitations are disclosed below.",
+        "Stocks are filtered to securities listed on Nasdaq, NYSE or CBOE (including ADRs), "
+        "screened for fundamental quality, and ranked by institutional consensus — positions "
+        "held at or above benchmark weight, weighted by how independent the funds are — with "
+        "confidence-shrunk quality ordering the names inside each consensus band. Up to 15 "
+        "names are organized into three tiers; names most funds hold only at benchmark "
+        "weight are listed separately. All methodology limitations are disclosed below.",
         styles["BodyText"],
     )]
     story += [PageBreak()]

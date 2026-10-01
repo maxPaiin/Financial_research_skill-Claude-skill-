@@ -29,20 +29,36 @@ numbers from this run, **plus the three v0.3 disclosures**:
 
 **v0.3 additions (also mandatory in the framing section):**
 
-5. **Style-homogeneity warning** — if `crowding_signals.json` reports
-   `homogeneity.is_homogeneous = true`, state prominently that the input is dominated by a
-   single fund style, so consensus this run is largely tautological (same-mandate funds
-   buying the same names) and carries little independent information. Point to Appendix 3.
+5. **Independence of the input set (v0.4, replaces the v0.3 style-homogeneity warning)** —
+   state how many independent opinions this run's funds amount to: "This run's [N] funds
+   amount to [N_eff] independent opinions." (`n_eff_run` in `rankings.json`). Funds that hold
+   the same names share one opinion's weight, so a single-mandate input set has an N_eff
+   close to 1 and its consensus says little; point to Appendix 3, which names the upload that
+   adds least. State this number **once**, here.
 
 6. **Stratification-abandoned note** — state that stratified sampling was abandoned for two
    reasons: the sample (7–11 funds) is too small to stratify meaningfully (style cells would
    hold 1–2 funds), and full stratified analysis exceeds the tool's processing/token budget.
-   The replacement is style-diversity weighting + the homogeneity warning.
+   The replacement is independence weighting of the funds (N_eff, v0.4); fund-style labels are
+   shown for context only and enter no number.
 
 7. **Source-selection-method disclosure** — state that macro/expectations facts use a
    primary-first, cross-source corroboration HARD gate (≥2 primary-tier sources per fact,
    per-sentence attribution), which structurally excludes uncorroborated low-trust material.
    A curated source policy is itself a stance and must be transparent.
+
+**v0.4 additions (mandatory, each stated ONCE in the framing section — never per card):**
+
+8. **What consensus means here** — use this sentence: "Consensus here means what these funds
+   collectively hold at or above their benchmark weight (or, where no benchmark data exists,
+   above the common disclosure floor), adjusted for how similar the funds are to one another.
+   It is not a quality stamp and not evidence of future returns."
+
+9. **What exit liquidity cannot show** — use this sentence: "Seven to eleven Hong
+   Kong–distributed funds are too small to crowd US large caps; global crowding cannot be
+   measured from factsheets."
+
+10. **This run's N_eff** — item 5's sentence, with the run's own numbers.
 
 ## What to prohibit (no exceptions)
 
@@ -74,6 +90,15 @@ Before reading the ranked watchlist, please note the following limitations:
 4. Survivorship. Only operating funds appear in the input. Defunct funds and
    their holdings are absent, which may bias results toward more established
    large-cap names.
+
+5. Consensus. Consensus here means what these funds collectively hold at or
+   above their benchmark weight (or, where no benchmark data exists, above the
+   common disclosure floor), adjusted for how similar the funds are to one
+   another. It is not a quality stamp and not evidence of future returns.
+   This run's [N] funds amount to [N_eff] independent opinions.
+
+6. Crowding. Seven to eleven Hong Kong–distributed funds are too small to crowd
+   US large caps; global crowding cannot be measured from factsheets.
 
 This report is AI-generated and must not be used as investment advice.
 See the Disclaimer for the full legal statement.

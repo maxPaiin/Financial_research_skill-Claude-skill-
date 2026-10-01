@@ -12,7 +12,9 @@ rather than warnings scattered across sections: the user reviews their input
 once, and the consensus caveat sits next to the evidence for it.
 
 v0.4 (A6) adds the US listing check to the same block: rows per fund by
-resolution status, and every dropped row with its reason.
+resolution status, and every dropped row with its reason. v0.4 (B1-B3) adds
+merged share classes, and each fund's printed benchmark, its proxy, how deep
+its factsheet discloses, and the common vote floor that depth sets.
 """
 
 import json
@@ -24,7 +26,8 @@ from pathlib import Path
 # than reading crowding_signals.json — but it must use the same definition, so
 # the functions are imported instead of reimplemented.
 from crowding_signal import fund_style_map, homogeneity_report
-from extract_holdings import is_accepted
+from extract_holdings import common_vote_floor, fund_order_key, is_accepted
+from providers.benchmark_map import proxy_for
 
 
 def _currency_label(fund: dict) -> str:
@@ -104,6 +107,36 @@ def _listing_review(funds: list[dict]) -> list[str]:
     return lines
 
 
+def _disclosure_review(accepted: list[dict]) -> list[str]:
+    """B2/B3: each fund's benchmark and proxy, disclosure depth and floor, and tau."""
+    lines = ["### Benchmarks and disclosure depth", ""]
+    if not accepted:
+        return lines + ["- No accepted fund.", ""]
+    tau, set_by = common_vote_floor(accepted)
+    lines += ["| Fund | Benchmark (as printed) | Proxy ETF | Rows disclosed | Smallest weight |",
+              "|---|---|---|---|---|"]
+    for f in sorted(accepted, key=lambda f: fund_order_key(f["fund_id"])):
+        scope = f.get("scope_summary") or {}
+        bench = f.get("benchmark")
+        proxy = proxy_for(bench)
+        floor = scope.get("disclosure_floor")
+        lines += [f"| {f['fund_id']} | {bench or 'not printed'} "
+                  f"| {f'{proxy[0]} ({proxy[1]})' if proxy else '— (presence votes)'} "
+                  f"| {scope.get('disclosure_depth', 'n/a')} "
+                  f"| {f'{floor:.2%}' if isinstance(floor, (int, float)) else 'n/a'} |"]
+    lines += [""]
+    if tau is not None:
+        lines += [f"- Common vote floor: **{tau:.2%}**, set by {', '.join(set_by)} — the "
+                  "smallest weight that fund's factsheet discloses. A position below it is "
+                  "not counted as a vote anywhere, because not every fund could have "
+                  "disclosed it."]
+    unmapped = [f["fund_id"] for f in accepted if not proxy_for(f.get("benchmark"))]
+    if unmapped:
+        lines += [f"- No benchmark proxy for {', '.join(sorted(unmapped, key=fund_order_key))}: "
+                  "those funds cast presence votes (any position above the floor counts)."]
+    return lines + [""]
+
+
 def _input_review(data: dict, stage0: dict | None) -> list[str]:
     """G4: the single input-review block. Every finding lands here."""
     funds = data.get("funds", [])
@@ -145,6 +178,9 @@ def _input_review(data: dict, stage0: dict | None) -> list[str]:
 
     # --- A6: the SEC listing check ---
     lines += _listing_review(funds)
+
+    # --- B2/B3: benchmarks, disclosure depth, the common vote floor ---
+    lines += _disclosure_review(accepted)
 
     # --- G1: reporting currency + exit-liquidity exclusions ---
     census: dict[str, int] = {}

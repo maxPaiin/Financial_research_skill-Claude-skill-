@@ -11,6 +11,13 @@ v0.34 (A5) adds "Passed the screen but could not be scored": stocks that cleared
 the screen but have no quality score (fewer than two defined ROE years), read
 from `scores_per_stock.json` via --scores. Before v0.34 such a stock simply
 never appeared in the ranking, with no word as to why (F7).
+
+v0.4 (B8): "Consensus structure" replaces the style-homogeneity section — how
+many independent opinions the run holds (N_eff_run), each fund's weight and
+marginal contribution, the common vote floor and the vote-basis coverage, from
+`consensus.json` via --consensus; the style distribution remains as a
+display-only subsection. "Exit liquidity" replaces the consensus-with-crowding
+distribution: days-to-liquidate per ticker, USD-reporting holders only.
 """
 
 import json
@@ -26,12 +33,16 @@ def _unscored_after_screen(scores: dict | None) -> list[dict]:
     return sorted(rows, key=lambda s: s.get("ticker") or "")
 
 
+_DTL_ROWS = 15
+
+
 def build_layer2_md(
     overlap: dict,
     screen_results: dict,
     fundamentals: dict,
     crowding: dict,
     scores: dict | None = None,
+    consensus: dict | None = None,
 ) -> str:
     overlap_rows = overlap.get("overlap", [])
     results = screen_results.get("results", [])
@@ -75,7 +86,7 @@ def build_layer2_md(
     # Quality screen results — passed
     lines += ["## Quality screen results", ""]
     lines += ["### Passed", ""]
-    lines += ["| Ticker | ROE 5y avg | EV/EBITDA | D/E | Confidence |"]
+    lines += ["| Ticker | ROE avg (years; source) | EV/EBITDA | D/E | Quality confidence |"]
     lines += ["|---|---|---|---|---|"]
     for r in passed:
         tkr = r["ticker"]
@@ -83,13 +94,17 @@ def build_layer2_md(
         roe = rec.get("roe_5y_avg")
         ev = (rec.get("ev_ebitda") or {}).get("value")
         de = (rec.get("debt_equity") or {}).get("value")
-        conf = rec.get("overall_confidence", "")
+        # v0.34 A5: the confidence the ranking shrinks quality by.
+        conf = rec.get("quality_confidence")
+        years = rec.get("roe_years")
+        provenance = (f" ({years}y; {rec.get('roe_source') or 'n/a'})"
+                      if years is not None else "")
         lines += [
             f"| {tkr} "
-            f"| {f'{roe:.1%}' if roe is not None else 'n/a'} "
+            f"| {f'{roe:.1%}' if roe is not None else 'n/a'}{provenance} "
             f"| {f'{ev:.1f}' if ev is not None else 'n/a'} "
             f"| {f'{de:.2f}' if de is not None else 'n/a'} "
-            f"| {f'{conf:.2f}' if conf else 'n/a'} |"
+            f"| {f'{conf:.2f}' if isinstance(conf, (int, float)) else 'n/a'} |"
         ]
     lines += [""]
 
@@ -132,27 +147,120 @@ def build_layer2_md(
     lines += ["- See `data_provenance.json` for conflict log"]
     lines += [""]
 
-    # Crowding signal distribution
-    sig_vals = [s["signal"] for s in signals.values() if "signal" in s]
-    if sig_vals:
-        lines += ["## Consensus-with-crowding-discount distribution", ""]
-        lines += [f"- Range: {min(sig_vals):.3f} – {max(sig_vals):.3f}"]
-        lines += [f"- Mean: {sum(sig_vals)/len(sig_vals):.3f}"]
-        high_crowd = sum(1 for s in signals.values() if s.get("is_high_crowding"))
-        lines += [f"- High-crowding stocks (discount >= 30%): {high_crowd}"]
-        # A2: liquidity-inclusive vs NAV-only coverage (v0.3).
-        liq_inc = sum(1 for s in signals.values()
-                      if s.get("crowding_label") == "liquidity-inclusive")
-        nav_only = sum(1 for s in signals.values()
-                       if s.get("crowding_label") == "NAV-only")
-        lines += [f"- Crowding figures: {liq_inc} liquidity-inclusive (days-to-liquidate "
-                  f"applied), {nav_only} NAV-only (AUM/ADV missing — fell back to "
-                  "pure-weight discount)"]
-        lines += [""]
-
-    # G1.4: state the currency exclusions where the crowding labels are shown —
-    # a NAV-only label is otherwise indistinguishable from missing market data.
+    # v0.4 B8: how many independent opinions the run holds, and what counts
+    # as a vote. Read from consensus.json; nothing here changes a number.
     review = crowding.get("input_review", {}) or {}
+    lines += ["## Consensus structure", ""]
+    if isinstance(consensus, dict) and consensus.get("funds") is not None:
+        tau = consensus.get("vote_floor")
+        cov = consensus.get("vote_basis_coverage") or {}
+        bands = {}
+        for r in consensus.get("stocks", []):
+            bands[r.get("band")] = bands.get(r.get("band"), 0) + 1
+        lines += [
+            f"- Independent opinions in this run: **N_eff = {consensus.get('n_eff_run', 0):.2f}** "
+            f"from {consensus.get('n_funds', 0)} funds. Funds that hold the same names share "
+            "one opinion's weight; a fund unlike the others keeps a whole one.",
+            f"- Vote basis: {consensus.get('vote_basis')} — "
+            + ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in cov.items())
+            + " (fund-stock positions).",
+            "- Common vote floor: "
+            + (f"{tau:.2%} (set by {', '.join(consensus.get('vote_floor_set_by') or [])})"
+               if isinstance(tau, (int, float)) else "off (sensitivity run)"),
+            "- Consensus bands: " + ", ".join(
+                f"{b} {bands.get(b, 0)}" for b in ("majority", "plural", "single", "none")),
+        ]
+        anchored = consensus.get("anchored_core") or []
+        if anchored:
+            lines += [f"- Benchmark-anchored core (held by most funds, at or below benchmark "
+                      f"weight; not ranked): {', '.join(anchored)}"]
+        lines += ["", "| Fund | Weight ω | Marginal contribution | Benchmark proxy |",
+                  "|---|---|---|---|"]
+        for f in consensus.get("funds", []):
+            lines += [f"| {f.get('fund_id')} | {f.get('omega', 0):.3f} "
+                      f"| {f.get('marginal_contribution', 0):.3f} "
+                      f"| {f.get('benchmark_proxy') or '— (presence votes)'} |"]
+        lowest = min(consensus.get("funds", []) or [{}],
+                     key=lambda f: f.get("marginal_contribution", 0.0))
+        if lowest.get("fund_id"):
+            lines += ["", f"- Lowest marginal contribution: {lowest['fund_id']} "
+                      f"({lowest.get('marginal_contribution', 0):.3f} of an opinion) — the "
+                      "upload that adds least; Appendix 3 suggests replacing it with a "
+                      "dissimilar fund."]
+    else:
+        lines += ["- consensus.json was not supplied to this stage; the consensus structure "
+                  "is not reported."]
+    lines += [""]
+
+    # A3 (display only since v0.4): the style distribution, kept next to the
+    # consensus it describes. It enters no number.
+    homo = crowding.get("homogeneity", {})
+    lines += ["### Fund-style distribution (display only)", ""]
+    if not homo.get("labelled"):
+        lines += ["- Fund styles were not labelled this run."]
+    else:
+        dist = homo.get("style_distribution", {})
+        dist_str = ", ".join(f"{k}: {v}" for k, v in dist.items()) or "n/a"
+        lines += [f"- Style distribution of input funds: {dist_str}"]
+        lines += [f"- Dominant style: {homo.get('dominant_style')} "
+                  f"({homo.get('dominant_share', 0):.0%} of labelled funds)"]
+        if homo.get("is_homogeneous"):
+            lines += ["- ⚠ HOMOGENEOUS INPUT — most funds share one style. The independence "
+                      "weighting above already counts such funds as fewer opinions; see "
+                      "Appendix 3 for which kind of fund to add."]
+
+    # G2: the same false-consensus problem seen from the exposure angle.
+    thin = review.get("thin_us_exposure", {}) or {}
+    n_thin = thin.get("n_thin", 0)
+    if n_thin:
+        thin_names = ", ".join(
+            f"{f.get('fund_id')} ({(f.get('weight_kept') or 0):.0%})"
+            for f in thin.get("funds", [])
+        )
+        lines += [
+            f"- ⚠ THIN US EXPOSURE — {n_thin} of {thin.get('n_funds', 0)} accepted "
+            f"fund(s) hold only 20–35% of AUM in US equity: {thin_names}. Their votes "
+            "count in full (a vote is about a position, not about exposure), so "
+            "consensus in this run partly rests on marginal US sleeves.",
+        ]
+    elif thin:
+        lines += ["- US-exposure depth: no accepted fund is thin "
+                  "(all above 35% US-equity weight)."]
+    lines += [""]
+
+    # v0.4 B8: exit liquidity — the one crowding question factsheets can answer.
+    lines += ["## Exit liquidity", ""]
+    with_dtl = sorted((x for x in signals.values()
+                       if isinstance(x.get("days_to_liquidate"), (int, float))),
+                      key=lambda x: (-x["days_to_liquidate"], x["ticker"]))
+    no_data = sum(1 for x in signals.values()
+                  if not isinstance(x.get("days_to_liquidate"), (int, float)))
+    threshold = crowding.get("dtl_threshold", 10.0)
+    crowded = [x for x in with_dtl if x.get("is_exit_crowded")]
+    lines += [
+        f"- Days-to-liquidate: the trading days of average volume the holders that report "
+        f"AUM in USD would need to sell together. {len(with_dtl)} ticker(s) have a figure; "
+        f"{no_data} have no liquidity data (no USD-reported AUM among their holders, or "
+        "no ADV).",
+        f"- Exit-crowded (≥ {threshold:g} days, an uncalibrated line): "
+        + (", ".join(x["ticker"] for x in crowded) if crowded else "none")
+        + ". The coherence overlay demotes an exit-crowded stock one display tier; "
+        "it never changes a rank.",
+    ]
+    if with_dtl:
+        lines += ["", "| Ticker | Days to liquidate | USD-reporting holders | Exit-crowded |",
+                  "|---|---|---|---|"]
+        for x in with_dtl[:_DTL_ROWS]:
+            lines += [f"| {x['ticker']} | {x['days_to_liquidate']:.1f} "
+                      f"| {x.get('n_usd_aum_holders', 'n/a')} of {x.get('n_holders', 'n/a')} "
+                      f"| {'yes' if x.get('is_exit_crowded') else '—'} |"]
+        if len(with_dtl) > _DTL_ROWS:
+            lines += [f"", f"_{len(with_dtl) - _DTL_ROWS} more with lower figures in "
+                           "crowding_signals.json._"]
+    lines += [""]
+
+    # G1.4: state the currency exclusions where the liquidity figures are shown —
+    # a missing figure is otherwise indistinguishable from missing market data.
     currency = review.get("currency", {}) or {}
     lines += ["## Reporting currency and the exit-liquidity aggregate", ""]
     by_currency = currency.get("by_currency") or {}
@@ -171,62 +279,21 @@ def build_layer2_md(
             "- Average daily traded value is always USD, so admitting a non-USD AUM "
             "would overstate days-to-liquidate by roughly the exchange rate. Those "
             "funds are excluded rather than converted — **no FX conversion exists in "
-            "this pipeline** — and their holdings still count in full toward overlap, "
-            "consensus and style diversity. Stocks held only by excluded funds are "
-            "labelled NAV-only above.",
+            "this pipeline** — and their holdings still count in full toward overlap "
+            "and consensus. Stocks held only by excluded funds have no liquidity data "
+            "above.",
         ]
     elif by_currency:
         lines += ["- No fund was excluded from the exit-liquidity aggregate for "
                   "currency reasons; every accepted fund reports AUM in USD."]
     else:
         lines += ["- Fund AUM was not supplied to this stage, so no exit-liquidity "
-                  "aggregate was built; all crowding figures are NAV-only."]
-    lines += [""]
-
-    # A3: input-set style homogeneity state (v0.3).
-    homo = crowding.get("homogeneity", {})
-    lines += ["## Input-set style homogeneity (consensus informativeness)", ""]
-    if not homo.get("labelled"):
-        lines += ["- Fund styles were not labelled this run; style-diversity "
-                  "weighting was not applied and consensus is reported unweighted."]
-    else:
-        dist = homo.get("style_distribution", {})
-        dist_str = ", ".join(f"{k}: {v}" for k, v in dist.items()) or "n/a"
-        lines += [f"- Style distribution of input funds: {dist_str}"]
-        lines += [f"- Dominant style: {homo.get('dominant_style')} "
-                  f"({homo.get('dominant_share', 0):.0%} of labelled funds)"]
-        if homo.get("is_homogeneous"):
-            lines += ["- ⚠ HOMOGENEOUS INPUT — the input is dominated by a single "
-                      "style. Consensus in this run is largely tautological "
-                      "(same-mandate funds buying the same names) and therefore "
-                      "carries little independent information. See Appendix 3 for "
-                      "remediation (which fund styles to add)."]
-        else:
-            lines += ["- Input spans multiple styles; cross-style agreement is "
-                      "treated as more informative than within-style agreement."]
-
-    # G2: the same false-consensus problem seen from the exposure angle. Reported
-    # next to the style state because both qualify the SAME signal.
-    thin = review.get("thin_us_exposure", {}) or {}
-    n_thin = thin.get("n_thin", 0)
-    if n_thin:
-        thin_names = ", ".join(
-            f"{f.get('fund_id')} ({(f.get('weight_kept') or 0):.0%})"
-            for f in thin.get("funds", [])
-        )
-        lines += [
-            f"- ⚠ THIN US EXPOSURE — {n_thin} of {thin.get('n_funds', 0)} accepted "
-            f"fund(s) hold only 20–35% of AUM in US equity: {thin_names}. Their "
-            "consensus contribution is unchanged (the signal counts funds, not "
-            "exposure), so consensus in this run partly rests on marginal US sleeves.",
-        ]
-    elif thin:
-        lines += ["- US-exposure depth: no accepted fund is thin "
-                  "(all above 35% US-equity weight)."]
+                  "aggregate was built; no ticker has a days-to-liquidate figure."]
     lines += [""]
 
     lines += ["## Next layer", ""]
-    lines += [f"{n_pass} tickers advance to Layer 3 for composite ranking."]
+    lines += [f"{n_pass} tickers passed the screen; those with a quality score and at least "
+              "one qualifying vote are ranked in Layer 3."]
 
     return "\n".join(lines) + "\n"
 
@@ -239,6 +306,7 @@ def main():
     ap.add_argument("--crowding", required=True)
     ap.add_argument("--scores", help="scores_per_stock.json (v0.34 A5): lists stocks that "
                                      "passed the screen but could not be scored.")
+    ap.add_argument("--consensus", help="consensus.json (v0.4 B8): the consensus structure.")
     ap.add_argument("--out", default="/home/claude/work/layer2_screening.md")
     args = ap.parse_args()
 
@@ -249,7 +317,10 @@ def main():
     scores = (json.loads(Path(args.scores).read_text(encoding="utf-8"))
               if args.scores and Path(args.scores).exists() else None)
 
-    md = build_layer2_md(overlap, screen, fundamentals, crowding, scores)
+    consensus = (json.loads(Path(args.consensus).read_text(encoding="utf-8"))
+                 if args.consensus and Path(args.consensus).exists() else None)
+
+    md = build_layer2_md(overlap, screen, fundamentals, crowding, scores, consensus)
 
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(md, encoding="utf-8")

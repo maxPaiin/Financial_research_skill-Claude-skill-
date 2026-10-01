@@ -154,36 +154,39 @@ Required markers (checked deterministically): the words **Best**, **Average**,
 
 ---
 
-## C4 — Appendix 3: over-consensus / false-theme warning + fund-style remediation → `appendix3_consensus_warning.md`
+## C4 — Appendix 3: over-consensus / false-theme warning + input remediation → `appendix3_consensus_warning.md`
 
-1. **Over-consensus & crowded-trade tail-risk warning** (ties to A2): crowded
-   names face larger forced-selling pressure in a tail event; restate the 30–60
-   day staleness caveat. Use the days-to-liquidate figures from
-   `crowding_signals.json`.
-2. **False-theme / homogeneity warning** (ties to A3): if the input set is
-   style-homogeneous (`homogeneity.is_homogeneous` in `crowding_signals.json`),
-   the consensus signal is largely tautological and uninformative — say so
-   prominently.
-3. **Remediation — which fund styles to add.** Using the Stage 1a style
-   distribution (`homogeneity.style_distribution`), identify thin/missing style
-   buckets and tell the user what to add. Concrete pattern:
-   > "Your input is 8 growth/tech funds. To obtain cross-style confirmation, add
-   > a value fund, a dividend/income fund, a small/mid-cap fund, and a non-US-
-   > tilted global fund."
-4. **Thin-US-exposure caveat (v0.32 G2)** — sits alongside the homogeneity
-   warning, because it is the same false-consensus problem seen from the
-   *exposure* angle rather than the *style* angle. Read
-   `input_review.thin_us_exposure` in `crowding_signals.json`. Where accepted
-   funds are flagged thin, say that the consensus signal partly rests on
-   marginal US sleeves and should be read as weaker still — naming the funds and
-   their US weight. State explicitly that their votes were **not** down-weighted,
-   so the reader knows the caveat is not already priced into the score.
-   **Where no accepted fund is thin, omit this caveat entirely** rather than
-   printing an empty one.
+**Inputs (v0.4 B8):** from `consensus.json` — `n_eff_run`, each fund's weight `omega` and
+`marginal_contribution`; from `crowding_signals.json` — `homogeneity.style_distribution`
+(display only) and `input_review.thin_us_exposure`; the days-to-liquidate figures for the
+tail-risk paragraph.
 
-A homogeneous input produces a populated Appendix 3 naming specific
-under-represented styles; a diverse input produces a correspondingly milder
-version.
+1. **Over-consensus & crowded-trade tail-risk warning**: names the funds hold together face
+   larger forced-selling pressure in a tail event; restate the 30–60 day staleness caveat.
+   Use the days-to-liquidate figures from `crowding_signals.json` (USD-reporting holders
+   only), and say plainly that seven to eleven funds cannot crowd a US large cap by
+   themselves.
+2. **False-theme / independence warning**: report `n_eff_run` against the number of funds.
+   When N_eff is close to 1 the funds are, in effect, one opinion, and agreement among them
+   carries little information — say so prominently.
+3. **Remediation — which upload to change.** Name the fund with the **lowest marginal
+   contribution** (it adds least independent opinion for its token cost) and advise:
+   **"replace the lowest-contribution fund with a dissimilar one"** — a fund whose holdings
+   overlap least with the rest. The style distribution may illustrate what "dissimilar"
+   means (for example, a value or income fund in an all-growth set), but it is context, not
+   a score. Concrete pattern:
+   > "Your 8 funds amount to 1.4 independent opinions. F6 adds least (0.05 of an opinion):
+   > replace it with a dissimilar fund — one whose top holdings overlap little with the
+   > others, such as a value, dividend or small/mid-cap fund."
+4. **Thin-US-exposure caveat (v0.32 G2)** — sits alongside the independence warning.
+   Read `input_review.thin_us_exposure` in `crowding_signals.json`. Where accepted funds are
+   flagged thin, say that the consensus partly rests on marginal US sleeves — naming the
+   funds and their US weight — and that their votes count in full (a vote is about a
+   position, not about exposure). **Where no accepted fund is thin, omit this caveat
+   entirely** rather than printing an empty one.
+
+An input with N_eff near 1 produces a populated Appendix 3 naming the upload to replace; a
+diverse input produces a correspondingly milder version.
 
 ---
 

@@ -545,6 +545,7 @@ class TestLayer3Slice(unittest.TestCase):
             "# Layer 3: Ranked Watchlist\n\n"
             "## What this analysis is and is not\n\nFraming prose.\n\n"
             "## Tier A\n\n### #1 AAPL\nbody\n\n"
+            "## Benchmark-anchored core holdings\n\n| NVDA |\n\n"
             "## Methodology disclosure\n\n- detail\n\n"
             "## Important caveats\n\n- caveat\n\n"
             "## Disclaimer\n\nverbatim disclaimer\n"
@@ -552,6 +553,7 @@ class TestLayer3Slice(unittest.TestCase):
         framing, cards, methodology = build_report._slice_layer3(layer3)
         self.assertIn("Framing prose", framing)
         self.assertIn("Tier A", cards)
+        self.assertIn("Benchmark-anchored core holdings", cards)   # v0.4: with the watchlist
         self.assertNotIn("Methodology disclosure", cards)
         self.assertNotIn("Disclaimer", cards)
         self.assertIn("Methodology disclosure", methodology)
@@ -567,10 +569,10 @@ class TestCheckpointGate(unittest.TestCase):
         (work / "layer1_extraction.md").write_text(
             "# Layer 1\n## Input review\n## Per-fund extraction\n")
         (work / "layer2_screening.md").write_text(
-            "## Quality screen results\n## Input-set style homogeneity\n"
+            "## Quality screen results\n## Consensus structure\n## Exit liquidity\n"
             "## Reporting currency and the exit-liquidity aggregate\n")
         (work / "layer3_ranked_advice.md").write_text(
-            "## Methodology disclosure\nConfidence-shrinkage\nexit-crowdedness\n")
+            "## Methodology disclosure\nConsensus band\nConfidence-shrinkage\nExit liquidity\n")
 
     def test_base_ok(self):
         import check_checkpoints as cc
@@ -604,8 +606,8 @@ class TestCheckpointGate(unittest.TestCase):
             work = Path(tmp)
             self._seed(work)
             (work / "layer3_ranked_advice.md").write_text(
-                "## Methodology disclosure\nConfidence-shrinkage\nexit-crowdedness\n"
-                "**Bias note:** repeated per card\n")
+                "## Methodology disclosure\nConsensus band\nConfidence-shrinkage\n"
+                "Exit liquidity\n**Bias note:** repeated per card\n")
             res = cc.review(work, set())
             self.assertFalse(res["ok"])
             self.assertTrue(any("Bias note" in p for p in res["problems"]))
@@ -925,10 +927,10 @@ class TestCoherenceGate(unittest.TestCase):
             (work / "layer1_extraction.md").write_text(
                 "# Layer 1\n## Input review\n## Per-fund extraction\n")
             (work / "layer2_screening.md").write_text(
-                "## Quality screen results\n## Input-set style homogeneity\n"
+                "## Quality screen results\n## Consensus structure\n## Exit liquidity\n"
                 "## Reporting currency and the exit-liquidity aggregate\n")
             (work / "layer3_ranked_advice.md").write_text(
-                "## Methodology disclosure\nConfidence-shrinkage\nexit-crowdedness\n")
+                "## Methodology disclosure\nConsensus band\nConfidence-shrinkage\nExit liquidity\n")
             self.assertTrue(cc.review(work, set())["ok"])
 
 
@@ -1303,8 +1305,8 @@ class TestLayer2InputReview(unittest.TestCase):
                                  "band": [0.20, 0.35],
                                  "funds": [{"fund_id": "F2", "weight_kept": 0.21}]},
         },
-        "signals": [{"ticker": "AAA", "signal": 1.0, "crowding_label": "NAV-only",
-                     "is_high_crowding": False}],
+        "signals": [{"ticker": "AAA", "days_to_liquidate": None,
+                     "liquidity_label": "no-liquidity-data", "is_exit_crowded": False}],
     }
 
     def _md(self, crowding):
@@ -1389,10 +1391,10 @@ class TestImportantNoticeGate(unittest.TestCase):
         (work / "layer1_extraction.md").write_text(
             "# Layer 1\n## Input review\n## Per-fund extraction\n")
         (work / "layer2_screening.md").write_text(
-            "## Quality screen results\n## Input-set style homogeneity\n"
+            "## Quality screen results\n## Consensus structure\n## Exit liquidity\n"
             "## Reporting currency and the exit-liquidity aggregate\n")
         (work / "layer3_ranked_advice.md").write_text(
-            "## Methodology disclosure\nConfidence-shrinkage\nexit-crowdedness\n")
+            "## Methodology disclosure\nConsensus band\nConfidence-shrinkage\nExit liquidity\n")
         (work / "rankings.json").write_text(json.dumps({"ranked": [
             {"ticker": "AVGO", "industry": "technology"},
             {"ticker": "JNJ", "industry": "healthcare"},
