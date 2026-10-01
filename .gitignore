@@ -3,7 +3,6 @@ env/
 __pycache__/
 *.py[cod]
 *$py.class
-tests
 
 .vscode/
 .idea/
@@ -15,8 +14,16 @@ cache/
 .cache/
 markdown/
 *.json
+# v0.4 A0: committed JSON — test fixtures and curated reference data.
+!tests/fixtures/**/*.json
+!references/*.json
 *.pdf
 .env
 FRED_API_KEY
+
+# v0.4 A0: Claude Code CLI runtime directories (scripts/paths.py defaults).
+/fr_work/
+/fr_outputs/
+/fr_uploads/
 
 .DS_Store
