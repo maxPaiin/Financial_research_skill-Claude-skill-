@@ -30,6 +30,8 @@ import argparse
 from pathlib import Path
 from typing import Optional
 
+from paths import work_dir
+
 _DISCLAIMER = Path(__file__).resolve().parents[1] / "assets" / "disclaimer.md"
 _TIER_SLICES = {"A": (1, 5), "B": (6, 10), "C": (11, 15)}
 _BAND_LABELS = {"majority": "Majority consensus", "plural": "Plural consensus",
@@ -311,7 +313,8 @@ def main():
                                         "Optional: absent -> pure rank-slice tiers.")
     ap.add_argument("--crowding", help="crowding_signals.json (v0.4): days-to-liquidate and "
                                        "the HIGH CROWDING flag on each card.")
-    ap.add_argument("--out", default="/home/claude/work/layer3_ranked_advice.md")
+    ap.add_argument("--out", default=str(work_dir() / "layer3_ranked_advice.md"),
+                    help="Default: the work directory (paths.py).")
     args = ap.parse_args()
 
     rankings = json.loads(Path(args.rankings).read_text(encoding="utf-8"))

@@ -32,7 +32,12 @@ _WARN_THRESHOLD = 0.20      # diff_pct below → warn, take higher-confidence va
 _CONFIDENCE_PENALTY = 0.5   # multiply confidence when diff_pct >= WARN_THRESHOLD
 
 _PROVENANCE_LOG: list[dict] = []
-_PROVENANCE_PATH = Path("/home/claude/work/data_provenance.json")
+
+
+def default_provenance_path() -> Path:
+    """<work dir>/data_provenance.json, resolved when needed (v0.4 C1)."""
+    from paths import work_dir    # scripts/ is on sys.path wherever providers is
+    return work_dir() / "data_provenance.json"
 
 
 def resolve(points: list[DataPoint]) -> DataPoint:
@@ -111,13 +116,14 @@ def _log_conflict(points: list[DataPoint], diff_pct: float, severity: str):
                     [p.source for p in points])
 
 
-def flush_provenance(path: Path = _PROVENANCE_PATH) -> Path:
+def flush_provenance(path: Optional[Path] = None) -> Path:
     """Write accumulated provenance log to disk and clear the in-memory buffer.
 
     Clearing is required so the next batch in the same Python process starts
     from an empty log; without this, re-running the registry would
     double-count conflicts from prior runs.
     """
+    path = Path(path) if path is not None else default_provenance_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(

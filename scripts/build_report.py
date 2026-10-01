@@ -12,11 +12,10 @@ Reads (from <work-dir>):
   appendix3_consensus_warning.md     (C4 — optional; over-consensus + style remediation)
   important_notice_checkpoint.md     (H1 — optional; v0.33 expectations bar + sentiment cycle)
 
-Outputs:
-  /mnt/user-data/outputs/financial_research_report.pdf (default)
-  /mnt/user-data/outputs/<each checkpoint>.md          (D5 copy)
-  /mnt/user-data/outputs/coherence.json                (v0.31 audit side-car,
-                                                        copied when present)
+Outputs (directories from paths.py — the claude.ai sandbox or ./fr_outputs):
+  <outputs>/financial_research_report.pdf (default)
+  <outputs>/<each checkpoint>.md          (D5 copy)
+  <outputs>/coherence.json                (v0.31 audit side-car, copied when present)
 
 PDF section order (v0.3, §3.4):
   1.  Cover
@@ -75,6 +74,8 @@ import shutil
 from datetime import date
 from pathlib import Path
 
+from paths import outputs_dir, work_dir
+
 try:
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
@@ -88,14 +89,13 @@ try:
 except ImportError:
     _HAS_REPORTLAB = False
 
-# Paths resolved relative to this file so the skill works regardless of where
-# it's mounted (the previous hardcoded /home/claude/... made the disclaimer
-# silently fall back to a placeholder string — see review §B5).
+# Assets resolve relative to this file so the skill works wherever it is
+# mounted (a hard-coded skill path once made the disclaimer silently fall back
+# to a placeholder string — see review §B5). Runtime directories come from
+# paths.py (v0.4 C1), so the same script runs on claude.ai and in Claude Code.
 _SCRIPT_DIR = Path(__file__).resolve().parent
 _PROJECT_ROOT = _SCRIPT_DIR.parent
 _ASSETS_DIR = _PROJECT_ROOT / "assets"
-_WORK_DIR = Path("/home/claude/work")
-_OUTPUTS_DIR = Path("/mnt/user-data/outputs")
 
 # Checkpoint .md files copied to the user-visible outputs dir (D5). The work dir
 # is ephemeral (resets between sessions), so these must be surfaced where the
@@ -510,9 +510,9 @@ def copy_checkpoints(work_dir: Path, outputs_dir: Path) -> list[str]:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--work-dir", default=str(_WORK_DIR))
-    ap.add_argument("--out", default=str(_OUTPUTS_DIR / "financial_research_report.pdf"))
-    ap.add_argument("--outputs-dir", default=str(_OUTPUTS_DIR),
+    ap.add_argument("--work-dir", default=str(work_dir()))
+    ap.add_argument("--out", default=str(outputs_dir() / "financial_research_report.pdf"))
+    ap.add_argument("--outputs-dir", default=str(outputs_dir()),
                     help="User-visible download dir; checkpoint .md files are copied here (D5).")
     ap.add_argument("--no-copy-checkpoints", action="store_true",
                     help="Skip copying checkpoint .md files to the outputs dir.")

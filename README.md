@@ -348,8 +348,24 @@ pip install -r requirements.txt --break-system-packages
 
 No API keys required. **A SEC EDGAR contact email is required (v0.3 B1)** — SEC returns 403
 without one. Supply it via `--email you@example.com` to `validate_uploads.py` /
-`fetch_fundamentals.py`, or set `EDGAR_CONTACT_EMAIL`. The email is placed only into the EDGAR
-request header; it is not stored or transmitted anywhere else.
+`fetch_fundamentals.py` / `resolve_tickers.py`, or set `EDGAR_CONTACT_EMAIL`. The email is
+placed only into the EDGAR request header; it is not stored or transmitted anywhere else.
+
+### Install for Claude Code CLI (v0.4)
+
+1. Clone the skill into a skills directory, under the name `financial-research`:
+   - personal: `~/.claude/skills/financial-research/`
+   - one project only: `<project>/.claude/skills/financial-research/`
+2. Install the dependencies (above) into the Python that Claude Code uses.
+3. Set `EDGAR_CONTACT_EMAIL`, or pass `--email` when asked.
+4. In Claude Code, run **`/financial-research`** and give it the path of the `.zip` of 7–11
+   fund factsheet PDFs (a folder of PDFs also works on the CLI).
+
+Outside the claude.ai sandbox every runtime directory is relative to the directory Claude
+Code runs in: working files in `./fr_work`, the PDF report and checkpoint copies in
+**`./fr_outputs`**, extracted uploads in `./fr_uploads`. Override any of them with
+`FR_WORK_DIR`, `FR_OUTPUTS_DIR`, `FR_UPLOADS_DIR` or `EDGAR_CACHE_DIR`
+(`scripts/paths.py`). On claude.ai nothing needs configuring.
 
 ---
 
@@ -363,111 +379,111 @@ For local development, individual scripts can be run directly:
 # Stage 0 — validate (+ SEC email gate). --out saves the result so Stage 1e can
 # reproduce the v0.32 regional advisories inside the consolidated input review.
 python scripts/validate_uploads.py /path/to/uploads --email you@example.com \
-  --out /home/claude/work/stage0_validation.json
+  --out fr_work/stage0_validation.json
 
 # Stage 1b-resolve (v0.34) — SEC listing check: a row is kept only if SEC's
 # exchange file lists it on Nasdaq, NYSE or CBOE (--sec-file replays a saved copy)
-python scripts/resolve_tickers.py --holdings /home/claude/work/holdings.json \
+python scripts/resolve_tickers.py --holdings fr_work/holdings.json \
   --email you@example.com
 
 # Stage 1b-d — filter, normalise currency, flag thin US exposure, dedupe
 # (after Claude writes holdings.json at Stage 1a)
-python scripts/extract_holdings.py --input /home/claude/work/holdings.json --dedupe
+python scripts/extract_holdings.py --input fr_work/holdings.json --dedupe
 
 # Stage 1e — Layer 1 report (--stage0 is optional; without it the advisory
 # subsection is omitted rather than printed empty)
 python scripts/layer1_report.py \
-  --holdings /home/claude/work/holdings.json \
-  --stage0 /home/claude/work/stage0_validation.json
+  --holdings fr_work/holdings.json \
+  --stage0 fr_work/stage0_validation.json
 
 # Stage 2a — overlap matrix
 python scripts/overlap_analysis.py \
-  --holdings /home/claude/work/holdings.json \
-  --out /home/claude/work/overlap.json
+  --holdings fr_work/holdings.json \
+  --out fr_work/overlap.json
 
 # Stage 2b — fetch fundamentals from EDGAR + yfinance, with resolver
 python scripts/fetch_fundamentals.py \
-  --holdings /home/claude/work/holdings.json \
+  --holdings fr_work/holdings.json \
   --email you@example.com \
-  --out /home/claude/work/fundamentals.json
+  --out fr_work/fundamentals.json
 
 # Stage 2d — quality screen (PASS / FAIL)
 python scripts/quality_screen.py \
-  --holdings /home/claude/work/holdings.json \
-  --fundamentals /home/claude/work/fundamentals.json \
-  --unscored /home/claude/work/unscored_tickers.json \
-  --out /home/claude/work/screen_results.json
+  --holdings fr_work/holdings.json \
+  --fundamentals fr_work/fundamentals.json \
+  --unscored fr_work/unscored_tickers.json \
+  --out fr_work/screen_results.json
 
 # Stage 2e — fundamental quality scores
 python scripts/compute_scores.py \
-  --fundamentals /home/claude/work/fundamentals.json \
-  --screen /home/claude/work/screen_results.json \
-  --out /home/claude/work/scores_per_stock.json
+  --fundamentals fr_work/fundamentals.json \
+  --screen fr_work/screen_results.json \
+  --out fr_work/scores_per_stock.json
 
 # Stage 2f-i (v0.4) — benchmark proxy top-10 weights per fund
 # (--replay <file> reads a saved {etf: {ticker: weight}} instead of the network)
 python scripts/benchmark_weights.py \
-  --holdings /home/claude/work/holdings.json \
-  --out /home/claude/work/benchmark_weights.json
+  --holdings fr_work/holdings.json \
+  --out fr_work/benchmark_weights.json
 
 # Stage 2f-ii (v0.4) — consensus signal v2: votes, fund independence, bands.
 # --vote-basis presence / --vote-floor none are for sensitivity runs only.
 python scripts/consensus_signal.py \
-  --holdings /home/claude/work/holdings.json \
-  --benchmark-weights /home/claude/work/benchmark_weights.json \
-  --out /home/claude/work/consensus.json
+  --holdings fr_work/holdings.json \
+  --benchmark-weights fr_work/benchmark_weights.json \
+  --out fr_work/consensus.json
 
 # Stage 2f-iii — exit liquidity (days-to-liquidate, USD-reporting holders only)
 python scripts/crowding_signal.py \
-  --overlap /home/claude/work/overlap.json \
-  --holdings /home/claude/work/holdings.json \
-  --fundamentals /home/claude/work/fundamentals.json \
-  --out /home/claude/work/crowding_signals.json
+  --overlap fr_work/overlap.json \
+  --holdings fr_work/holdings.json \
+  --fundamentals fr_work/fundamentals.json \
+  --out fr_work/crowding_signals.json
 
 # Stage 3a — the ranking (the ONLY writer of rank order): band, then Q''
 python scripts/build_rankings.py \
-  --scores /home/claude/work/scores_per_stock.json \
-  --consensus /home/claude/work/consensus.json \
-  --overlap /home/claude/work/overlap.json \
-  --out /home/claude/work/rankings.json
+  --scores fr_work/scores_per_stock.json \
+  --consensus fr_work/consensus.json \
+  --overlap fr_work/overlap.json \
+  --out fr_work/rankings.json
 
 # Stage 3a-bis-i (v0.31) — sector-ETF relative strength vs SPY, fixed 3M/6M/12M
 # (--prices <file> replays a saved {symbol: [closes]} map instead of calling yfinance)
 python scripts/etf_relative_strength.py \
-  --rankings /home/claude/work/rankings.json \
-  --out /home/claude/work/etf_relative_strength.json
+  --rankings fr_work/rankings.json \
+  --out fr_work/etf_relative_strength.json
 
 # Stage 3a-bis (v0.31) — the coherence overlay. Writes ONLY the side-car;
 # rankings.json is read-only. Each input is optional: an absent one degrades the
 # affected pairs to "insufficient data", never to a verdict.
 python scripts/coherence_audit.py \
-  --rankings /home/claude/work/rankings.json \
-  --macro /home/claude/work/macro_factors.json \
-  --sector-logic /home/claude/work/sector_logic.json \
-  --etf /home/claude/work/etf_relative_strength.json \
-  --crowding /home/claude/work/crowding_signals.json \
-  --out /home/claude/work/coherence.json
+  --rankings fr_work/rankings.json \
+  --macro fr_work/macro_factors.json \
+  --sector-logic fr_work/sector_logic.json \
+  --etf fr_work/etf_relative_strength.json \
+  --crowding fr_work/crowding_signals.json \
+  --out fr_work/coherence.json
 
 # Stage 3d — Layer 3 report. Drop --coherence to get the pre-overlay (v0.3) tiers.
 python scripts/layer3_report.py \
-  --rankings /home/claude/work/rankings.json \
-  --framing /home/claude/work/honest_framing.txt \
-  --rationale-dir /home/claude/work/rationale/ \
-  --coherence /home/claude/work/coherence.json \
-  --crowding /home/claude/work/crowding_signals.json \
-  --out /home/claude/work/layer3_ranked_advice.md
+  --rankings fr_work/rankings.json \
+  --framing fr_work/honest_framing.txt \
+  --rationale-dir fr_work/rationale/ \
+  --coherence fr_work/coherence.json \
+  --crowding fr_work/crowding_signals.json \
+  --out fr_work/layer3_ranked_advice.md
 
 # Macro gate — deterministic checkpoint review (v0.3 D4 + v0.31 overlay invariants
 # + v0.33 Part H notice rules: two-source citations, per-entry sourcing, no verdict
 # vocabulary, no ticker-bound sentiment claim, constructive register).
 # coherence.json and important_notice_checkpoint.md are checked when present;
 # --require-coherence / --require-important-notice make them mandatory.
-python scripts/check_checkpoints.py /home/claude/work/
+python scripts/check_checkpoints.py fr_work/
 
 # Stage 4 — PDF assembly (+ copies all checkpoint .md to the outputs dir, D5)
 python scripts/build_report.py \
-  --work-dir /home/claude/work/ \
-  --out /mnt/user-data/outputs/financial_research_report.pdf
+  --work-dir fr_work/ \
+  --out fr_outputs/financial_research_report.pdf
 ```
 
 ### Running the test suite
@@ -512,7 +528,7 @@ The layered `.md` checkpoints, the overlay's audit trail, and a final English-on
 | `coherence.json`                  | v0.31 — per-stock audit: three factor readings, pairwise verdicts, tier delta, contradiction text |
 | `financial_research_report.pdf`   | All of the above, assembled into a denser English PDF (18–26pp ceiling)      |
 
-All checkpoint files — including `coherence.json` — are copied to `/mnt/user-data/outputs`
+All checkpoint files — including `coherence.json` — are copied to the outputs directory (`./fr_outputs` on the CLI)
 alongside the PDF (the container work dir is ephemeral and resets between sessions).
 `coherence.json` is shipped because keeping the qualitative judgment out of the ranking is
 only worth something if a reader can check every demotion against the readings that produced it.

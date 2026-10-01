@@ -167,24 +167,28 @@ description: Ranks US-listed equities, including ADRs, surfaced by 7-11 Hong Kon
 
 ## Output contract
 
+Directories come from `scripts/paths.py` (v0.4) — the claude.ai sandbox mounts, or
+`./fr_work`, `./fr_outputs`, `./fr_uploads` under Claude Code CLI; override with
+`FR_WORK_DIR`, `FR_OUTPUTS_DIR`, `FR_UPLOADS_DIR`, `EDGAR_CACHE_DIR`.
+
 ```
-/home/claude/work/                 (EPHEMERAL — resets between sessions)
+WORK_DIR/                          (EPHEMERAL on claude.ai — resets between sessions)
   layer1_extraction.md  layer2_screening.md  layer3_ranked_advice.md
   macro_checkpoint.md   expectations_checkpoint.md  appendix3_consensus_warning.md
   important_notice_checkpoint.md                                                      (v0.33)
   holdings.json  overlap.json  fundamentals.json  unscored_tickers.json
   data_provenance.json  screen_results.json  scores_per_stock.json
-  crowding_signals.json  rankings.json
+  benchmark_weights.json  consensus.json  crowding_signals.json  rankings.json        (v0.4)
   macro_factors.json  sector_logic.json  etf_relative_strength.json  coherence.json   (v0.31)
   stage0_validation.json                                                              (v0.32)
 
-/mnt/user-data/outputs/            (USER-VISIBLE — downloadable)
+OUTPUTS_DIR/                       (USER-VISIBLE — downloadable)
   financial_research_report.pdf
   <all checkpoint .md files + coherence.json, copied by build_report.py — D5>
 ```
 
-The closing chat message points the user to `/mnt/user-data/outputs` for the PDF
-**and** the checkpoint `.md` files; it must NOT claim the work dir persists.
+The closing chat message points the user to OUTPUTS_DIR for the PDF **and** the
+checkpoint `.md` files; it must NOT claim the work dir persists.
 
 ---
 

@@ -21,6 +21,8 @@ import json
 import argparse
 from pathlib import Path
 
+from paths import work_dir
+
 # The homogeneity definition is canonical in crowding_signal.py (A3). Layer 1
 # runs before Stage 2f, so it recomputes the state from holdings.json rather
 # than reading crowding_signals.json — but it must use the same definition, so
@@ -359,7 +361,8 @@ def main():
     ap.add_argument("--stage0", help="Optional validate_uploads.py --out JSON. "
                                      "Supplies the Stage 0 regional advisories to "
                                      "the consolidated input review (v0.32 G4).")
-    ap.add_argument("--out", default="/home/claude/work/layer1_extraction.md")
+    ap.add_argument("--out", default=str(work_dir() / "layer1_extraction.md"),
+                    help="Default: the work directory (paths.py).")
     args = ap.parse_args()
 
     data = json.loads(Path(args.holdings).read_text(encoding="utf-8"))

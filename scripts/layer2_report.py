@@ -24,6 +24,8 @@ import json
 import argparse
 from pathlib import Path
 
+from paths import work_dir
+
 
 def _unscored_after_screen(scores: dict | None) -> list[dict]:
     if not isinstance(scores, dict):
@@ -307,7 +309,8 @@ def main():
     ap.add_argument("--scores", help="scores_per_stock.json (v0.34 A5): lists stocks that "
                                      "passed the screen but could not be scored.")
     ap.add_argument("--consensus", help="consensus.json (v0.4 B8): the consensus structure.")
-    ap.add_argument("--out", default="/home/claude/work/layer2_screening.md")
+    ap.add_argument("--out", default=str(work_dir() / "layer2_screening.md"),
+                    help="Default: the work directory (paths.py).")
     args = ap.parse_args()
 
     overlap = json.loads(Path(args.overlap).read_text(encoding="utf-8"))

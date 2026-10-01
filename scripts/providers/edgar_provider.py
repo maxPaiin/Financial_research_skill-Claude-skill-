@@ -64,13 +64,14 @@ _TICKER_MAP_URL = "https://www.sec.gov/files/company_tickers_exchange.json"
 _TICKER_MAP_CACHE_KEY = "ticker_exchange_map"   # new key: a v0.33 cache is never reused
 _TICKER_MAP_TTL_S = 7 * 24 * 3600
 
-# Default cache lives at <repo-root>/.cache/edgar so the provider can be
-# instantiated outside the Claude skill runtime. Override via the `cache_dir=`
-# kwarg or the EDGAR_CACHE_DIR env var when needed.
-_DEFAULT_CACHE_DIR = (
-    Path(__file__).resolve().parents[2] / ".cache" / "edgar"
-)
-_CACHE_DIR = Path(os.environ["EDGAR_CACHE_DIR"]) if os.environ.get("EDGAR_CACHE_DIR") else _DEFAULT_CACHE_DIR
+# The default cache comes from paths.cache_dir() (v0.4 C1): EDGAR_CACHE_DIR when
+# set, the work dir in the claude.ai sandbox (the skill dir may be read-only
+# there), <repo-root>/.cache/edgar elsewhere. The `cache_dir=` kwarg overrides.
+
+
+def _default_cache_dir() -> Path:
+    from paths import cache_dir   # scripts/ is on sys.path wherever providers is
+    return cache_dir()
 
 # Annual reports by filer type; 10-Q adds interim balance sheets for D/E.
 ANNUAL_FORMS = ("10-K", "20-F", "40-F")
@@ -291,7 +292,7 @@ class EDGARProvider(FundamentalsProvider):
         contact_email: Optional[str] = None,
         offline: Optional[bool] = None,
     ):
-        self._cache = Path(cache_dir) if cache_dir is not None else _CACHE_DIR
+        self._cache = Path(cache_dir) if cache_dir is not None else _default_cache_dir()
         self._cache.mkdir(parents=True, exist_ok=True)
         self._rows_by_ticker: Optional[dict[str, TickerRow]] = None
         self._name_index: Optional[dict[str, list[tuple[int, str, Optional[str]]]]] = None
