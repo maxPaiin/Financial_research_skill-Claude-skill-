@@ -83,8 +83,13 @@ description: Ranks US-listed equities, including ADRs, surfaced by 7-11 Hong Kon
 > Nasdaq, NYSE or CBOE. The ticker is checked before the ISIN (ACN, MDT, CB carry IE/CH ISINs and
 > stay). A name-only row of a foreign private issuer needs an ADR marker or a US ISIN, else it is
 > `ambiguous_listing`. For each row the script prints as needing review, supply a ticker or ISIN
-> **only if it is printed on that factsheet page**; never infer one. Aliases you would add go to
-> `new_aliases.json` in the work dir for the maintainer — they are not used in the run.
+> **only if it is printed on that factsheet page** (check with `render_page.py`) via
+> `apply_review.py --set Fn.holdings[i].ticker_raw=...` (or `.isin=`), then rerun the script; never
+> infer one. A row the page does not identify stays excluded, and Layer 1 lists it.
+> **Alias learning loop (C4):** a name→ticker pairing you saw printed may be proposed in
+> `<work>/new_aliases.json` as `{"proposals": [{"name", "ticker", "seen_in": "F3 p2", "why"}]}`.
+> The run never uses that file; the maintainer reviews it with `scripts/dev/review_aliases.py`
+> and commits accepted aliases to `references/ticker_aliases.json`.
 
 > **Stage 1a required fields (v0.32 G1.1):** `fund_name`, `asof`, the holdings
 > table **and `currency`** — the fund's reporting currency for `total_aum`,

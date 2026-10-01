@@ -331,6 +331,11 @@ def main() -> int:
             print("  " + line)
         if len(review) > 40:
             print(f"  ... {len(review) - 40} more in {out.name}")
+        print("  Fix: apply_review.py --set <Fn>.holdings[<i>].ticker_raw=<printed ticker> "
+              "(or .isin=<printed ISIN>), then rerun this script. Leave a row as it is when "
+              "the page prints neither — it stays excluded and Layer 1 lists it.")
+        print("  Alias ideas go to new_aliases.json in the work dir for the maintainer; this "
+              "script never reads that file.")
     return 0
 
 

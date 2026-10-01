@@ -268,6 +268,52 @@ class TestResolveTickersCli(unittest.TestCase):
         self.assertIn("403", run.stderr)
 
 
+class TestAliasLearningLoop(unittest.TestCase):
+    """C4: proposals are reviewed by the maintainer, never used in the run."""
+
+    def test_the_run_never_reads_new_aliases(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            (tmp / "new_aliases.json").write_text(json.dumps(
+                {"proposals": [{"name": "Tencent Holdings", "ticker": "TCEHY"}]}))
+            holdings = tmp / "holdings.json"
+            holdings.write_text(json.dumps({"funds": [{"fund_id": "F1", "holdings": [
+                {"name": "Tencent Holdings", "weight": 0.05, "page": 1}]}]}))
+            env = {**os.environ, "FR_WORK_DIR": str(tmp), "EDGAR_CACHE_DIR": str(tmp / "c")}
+            run = subprocess.run(
+                [sys.executable, str(_REPO_ROOT / "scripts" / "resolve_tickers.py"),
+                 "--holdings", str(holdings), "--sec-file", str(_SAMPLE), "--offline"],
+                capture_output=True, text=True, env=env, timeout=60)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            row = json.loads(holdings.read_text())["funds"][0]["holdings"][0]
+            self.assertEqual(row["resolution"]["status"], "unresolved_name")
+            self.assertIn("Fix: apply_review.py --set <Fn>.holdings[<i>].ticker_raw=", run.stdout)
+            self.assertIn("never reads that file", run.stdout)
+
+    def test_review_tool_verdicts_and_merge(self):
+        sys.path.insert(0, str(_REPO_ROOT / "scripts" / "dev"))
+        from review_aliases import merge, review
+        with tempfile.TemporaryDirectory() as tmp:
+            provider = _provider(Path(tmp))
+            verdicts = {v["name"]: v["status"] for v in review([
+                {"name": "Mag Seven Chip Leader", "ticker": "NVDA"},     # new
+                {"name": "微軟", "ticker": "MSFT"},                        # already an alias
+                {"name": "Apple Inc", "ticker": "AAPL"},                  # SEC name resolves
+                {"name": "蘋果", "ticker": "MSFT"},                        # re-points an alias
+                {"name": "Tencent Holdings", "ticker": "TCEHY"},          # not in SEC file
+                {"name": "Inc.", "ticker": "AAPL"},                       # normalises to nothing
+            ], provider, load_aliases())}
+            self.assertEqual(verdicts, {"Mag Seven Chip Leader": "accept", "微軟": "known",
+                                        "Apple Inc": "known", "蘋果": "reject",
+                                        "Tencent Holdings": "reject", "Inc.": "reject"})
+            alias_file = Path(tmp) / "aliases.json"
+            alias_file.write_text(json.dumps({"aliases": {"Apple": "AAPL"}}))
+            n = merge([{"name": "Mag Seven Chip Leader", "ticker": "NVDA"}], alias_file)
+            self.assertEqual(n, 1)
+            self.assertEqual(json.loads(alias_file.read_text())["aliases"]["Mag Seven Chip Leader"],
+                             "NVDA")
+
+
 class TestIndustryMap(unittest.TestCase):
     def test_yfinance_consumer_sector_names(self):
         from providers.industry_map import normalize, sector_etf
