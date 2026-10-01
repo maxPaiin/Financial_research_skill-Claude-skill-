@@ -141,5 +141,107 @@ class TestDisclosureFloor(unittest.TestCase):
         self.assertEqual(common_vote_floor([self._with_floor("F1", None)]), (None, []))
 
 
+# -----------------------------------------------------------------------------
+# B3 — benchmark proxies and their top-10 weights
+# -----------------------------------------------------------------------------
+
+class TestBenchmarkMap(unittest.TestCase):
+    def test_appendix_b_rows(self):
+        from providers.benchmark_map import proxy_for
+        cases = {
+            "S&P 500 Information Technology Index": "XLK",
+            "Technology Select Sector Index": "XLK",
+            "MSCI AC World Information Technology 10/40 Index": "IXN",
+            "MSCI ACWI Information Technology Index (Net)": "IXN",
+            "MSCI World Information Technology Index": "IXN",
+            "MSCI USA IMI Information Technology 25/50 Index": "VGT",
+            "NASDAQ-100 Index": "QQQ", "Nasdaq 100": "QQQ",
+            "Russell 1000 Growth Index": "IWF", "Russell 1000 Index": "IWB",
+            "S&P 500 Index": "SPY", "MSCI ACWI Index": "ACWI",
+            "MSCI All Country World Index": "ACWI", "MSCI AC World Index (Net)": "ACWI",
+            "MSCI World Index (Net)": "URTH",
+        }
+        for text, etf in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(proxy_for(text)[0], etf)
+
+    def test_sector_rows_win_over_broad_rows(self):
+        from providers.benchmark_map import proxy_for
+        self.assertEqual(proxy_for("S&P 500 Information Technology"),
+                         ("XLK", "approximate (capped index)"))
+        self.assertEqual(proxy_for("S&P 500")[1], "exact")
+
+    def test_unmapped_is_none_never_a_plausible_proxy(self):
+        from providers.benchmark_map import proxy_for
+        for text in ("MSCI World Health Care Index", "Russell 1000 Value",
+                     "MSCI World Growth", "MSCI ACWI ex USA", "S&P 500 Equal Weight",
+                     "Nasdaq 100 Technology Sector", "Hang Seng Index", "", None):
+            with self.subTest(text=text):
+                self.assertIsNone(proxy_for(text))
+
+    def test_dash_variants_normalise(self):
+        from providers.benchmark_map import proxy_for
+        self.assertEqual(proxy_for("NASDAQ\u2011100")[0], "QQQ")
+
+
+class TestBenchmarkWeights(unittest.TestCase):
+    TOP = {"IXN": {"NVDA": 0.18, "AAPL": 0.15, "MSFT": 0.13, "AVGO": 0.05, "ORCL": 0.03,
+                   "CRM": 0.025, "TSM": 0.024, "AMD": 0.023, "ASML": 0.022, "CSCO": 0.021,
+                   "ADBE": 0.019, "ACN": 0.018}}
+
+    def _holdings(self):
+        return {"funds": [
+            _fund("F1", {"NVDA": 0.09}, benchmark="MSCI AC World Information Technology Index"),
+            _fund("F2", {"NVDA": 0.09}, benchmark="Hang Seng Index"),
+            _fund("F3", {"NVDA": 0.09}, benchmark=None),
+            _fund("F4", {"NVDA": 0.09}, benchmark="NASDAQ-100 Index"),
+            _fund("F5", {"NVDA": 0.09}, benchmark="MSCI ACWI IT", merged_into="F1"),
+        ]}
+
+    def test_records_proxy_top10_and_b10(self):
+        from benchmark_weights import build
+        out = build(self._holdings(), lambda etfs: {e: self.TOP[e] for e in etfs if e in self.TOP},
+                    fetched_at="2026-10-01")
+        f1 = out["F1"]
+        self.assertEqual(f1["proxy"], "IXN")
+        self.assertTrue(f1["proxy_quality"].startswith("approximate"))
+        self.assertEqual(len(f1["top10"]), 10)
+        self.assertNotIn("ACN", f1["top10"])                      # 12th largest
+        self.assertEqual(f1["b10"], 0.021)
+        self.assertIsNone(f1["error"])
+
+    def test_every_failure_is_a_null_proxy_with_a_reason(self):
+        from benchmark_weights import build
+        out = build(self._holdings(), lambda etfs: {e: self.TOP[e] for e in etfs if e in self.TOP})
+        self.assertIsNone(out["F2"]["proxy"])
+        self.assertIn("not in the proxy table", out["F2"]["error"])
+        self.assertIn("no benchmark printed", out["F3"]["error"])
+        self.assertIsNone(out["F4"]["proxy"])                      # QQQ not fetched
+        self.assertIn("unavailable for QQQ", out["F4"]["error"])
+        self.assertNotIn("F5", out)                                # merged share class
+
+    def test_a_crashing_fetch_is_recorded_not_raised(self):
+        from benchmark_weights import build
+        def boom(etfs):
+            raise RuntimeError("network down")
+        out = build(self._holdings(), boom)
+        self.assertIsNone(out["F1"]["proxy"])
+        self.assertIn("unavailable", out["F1"]["error"])
+
+    def test_cli_replay(self):
+        import json, subprocess, tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            (tmp / "h.json").write_text(json.dumps(self._holdings()))
+            (tmp / "r.json").write_text(json.dumps(self.TOP))
+            run = subprocess.run([sys.executable, str(_REPO_ROOT / "scripts" / "benchmark_weights.py"),
+                                  "--holdings", str(tmp / "h.json"), "--replay", str(tmp / "r.json"),
+                                  "--out", str(tmp / "bw.json")],
+                                 capture_output=True, text=True, timeout=60)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertIn("1/4 funds", run.stdout)
+            self.assertEqual(json.loads((tmp / "bw.json").read_text())["F1"]["proxy"], "IXN")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

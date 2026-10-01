@@ -28,6 +28,9 @@ Input shape (written by Claude at Stage 1a):
                                      factsheet does not state one. NEVER
                                      defaulted to USD.
       "total_aum": 12345678901.0,
+      "benchmark": "MSCI AC World Information Technology Index",
+                                  <- v0.4 B3: exactly as printed; null when the
+                                     factsheet prints none. NEVER inferred.
       "holdings": [
         {"ticker_raw": "AAPL", "name": "...", "weight": 0.0723, "isin": "US..."}
       ]
