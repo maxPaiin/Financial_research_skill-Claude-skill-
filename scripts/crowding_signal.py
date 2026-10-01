@@ -1,92 +1,54 @@
 """
-Stage 2f: Consensus-with-crowding-discount signal (v0.3).
+Stage 2f-iii (v0.4 B6): exit liquidity — and the input review that travels with it.
 
-Produces a single signal that combines how widely held a stock is (consensus)
-with a discount for HK-channel crowding. Two separate signals would imply
-independence that does not exist (§6 D6 decision).
+v0.4 moves crowding out of the rank (DEC-4). v0.3's discount measured NAV
+weight — conviction — rather than exit risk: its weight term saturated at a
+10% average weight, which is also the single-issuer ceiling, and its liquidity
+term could only add to the discount (F2). Position size no longer lowers a
+stock's rank; the consensus signal lives in consensus_signal.py. What remains
+here is the one crowding question the factsheets can answer — how long would
+it take these funds to sell — and it feeds the coherence overlay as a
+demotion-only risk check (coherence_audit.py, `exit_liquidity`).
 
-v0.3 rebuilds *what consensus measures* so it carries risk information, not
-crowd-following (premise 3 — "consensus is not alpha"):
+  aggregate_position_usd = sum over USD-reporting holders of fund_AUM x weight
+  days_to_liquidate      = aggregate_position_usd / ADV_usd
+  is_exit_crowded        = days_to_liquidate >= DTL_FULL (10)
 
-  A2 — Exit-crowdedness (days-to-liquidate).
-       The reflexive "everyone exits the same door" risk is position size
-       *relative to exit liquidity*, not relative to NAV. We fold a bounded,
-       increasing function of days_to_liquidate into the crowding discount:
-         aggregate_position_$ = Σ_USD-reporting funds (fund_AUM × weight_in_fund)
-         days_to_liquidate    = aggregate_position_$ / ADV_usd
-         liq                  = clamp(days_to_liquidate / DTL_FULL, 0, 1)
-         crowding_raw'        = crowding_raw × (1 + LIQ_WEIGHT × liq)
-       The discount is still capped at MAX_DISCOUNT. The formula deliberately
-       assumes *simultaneous exit by all holders* — the tail-risk framing the
-       tool is meant to surface. Each stock is labelled `liquidity-inclusive`
-       (the liquidity path produced the figure) or `NAV-only` (fell back to
-       the v0.2 pure-weight discount because AUM and/or ADV were missing).
+DTL_FULL = 10 is a round, uncalibrated number — there is no backtest to fit it
+against — and it is labelled as such wherever it is shown. The formula assumes
+every holder exits at once, the tail-risk framing. Each figure is labelled
+`liquidity-inclusive` (AUM and ADV available) or `no-liquidity-data`.
 
-       v0.32 G1 — the numerator must be USD. ADV is always USD, so a fund
-       reporting AUM in HKD or JPY would inflate days_to_liquidate by roughly
-       the FX rate, silently. `fund_aum_map()` therefore admits AUM ONLY from
-       funds whose normalised `currency == "USD"`; non-USD and unstated funds
-       are excluded (never converted) and their tickers fall through the
-       existing NAV-only path. No FX conversion exists in this codebase.
+Seven to eleven Hong Kong-distributed funds are too small to crowd US large
+caps, and global crowding cannot be measured from factsheets; this check flags
+only what these holders alone would take to unwind.
 
-  A3 — Style-diversity-weighted consensus.
-       A name held by funds spanning several distinct styles is more
-       informative than the same number of single-style funds ("AAPL held by
-       9/9 tech funds" carries ~zero information — the consensus is measuring
-       the input bias). We weight consensus by holder style-diversity:
-         diversity      = (n_distinct_styles - 1) / (n_funds_holding - 1)
-         consensus'     = consensus_raw × (STYLE_MIN_FACTOR
-                                           + (1 - STYLE_MIN_FACTOR) × diversity)
-       Within-style agreement is pushed down; cross-style agreement up. When
-       no style labels are present, the factor is 1.0 (no change) and the run
-       is flagged style-unlabelled.
+v0.32 G1 — the numerator must be USD. ADV is always USD, so a fund reporting
+AUM in HKD or JPY would inflate days_to_liquidate by roughly the FX rate,
+silently. `fund_aum_map()` therefore admits AUM ONLY from funds whose
+normalised `currency == "USD"`; non-USD and unstated funds are excluded (never
+converted). No FX conversion exists in this codebase.
 
-       Stratified sampling is ABANDONED for v0.3 (sample too small to stratify;
-       token budget). The replacement is this diversity weighting plus a
-       run-level homogeneity warning: if the *input set* of funds is
-       style-homogeneous (>= HOMOGENEITY_THRESHOLD share one style), consensus
-       in this run is largely uninformative and Appendix 3 says so.
-
-Formula and tuning constants are the canonical location per §5.3.
+The input review (currency census, thin-US-exposure report) and the fund-style
+distribution are carried here for Layer 2 and Appendix 3. They are disclosure
+only: nothing reads them back to change a number.
 
 Inputs:
-  --overlap        overlap.json (produced by overlap_analysis.py)
-  --holdings       holdings.json (optional; funds[].total_aum + funds[].style
-                   for A2 aggregate-position and A3 style labels)
-  --fundamentals   fundamentals.json (optional; per-ticker adv USD for A2)
+  --overlap        overlap.json (holders and weights per ticker)
+  --holdings       holdings.json (optional; fund AUM, currency and style)
+  --fundamentals   fundamentals.json (optional; per-ticker ADV in USD)
   --out            crowding_signals.json
 
-Output schema — crowding_signals.json:
+Output schema — crowding_signals.json (spec §7.4):
 {
   "n_signals": 100,
-  "homogeneity": {
-    "labelled": true,
-    "dominant_style": "growth",
-    "dominant_share": 0.82,
-    "is_homogeneous": true,
-    "style_distribution": {"growth": 8, "blend": 1},
-    "n_funds": 9
-  },
-  "input_review": {                       // v0.32 G4 — disclosure only
-    "currency": {"n_funds": 9, "by_currency": {"USD": 6, "HKD": 2, "unstated": 1},
-                 "n_usd_aum_used": 6, "n_excluded_for_currency": 3,
-                 "excluded_funds": [...], "n_usd_missing_aum": 0,
-                 "fx_conversion": false},
-    "thin_us_exposure": {"n_funds": 9, "n_thin": 1, "share_thin": 0.1111,
-                         "band": [0.20, 0.35], "funds": [...]}
-  },
+  "dtl_threshold": 10.0,
+  "homogeneity": {...display only...},
+  "input_review": {"currency": {...}, "thin_us_exposure": {...}},
   "signals": [
-    {"ticker": "AAPL",
-     "consensus_raw": 1.95,
-     "consensus_weighted": 1.40,
-     "style_diversity": 0.25,
-     "n_distinct_styles": 2,
-     "crowding_discount": 0.18,
-     "days_to_liquidate": 3.4,
-     "crowding_label": "liquidity-inclusive",
-     "signal": 1.15,
-     "is_high_crowding": false},
-    ...
+    {"ticker": "AAPL", "days_to_liquidate": 0.06,
+     "liquidity_label": "liquidity-inclusive", "is_exit_crowded": false,
+     "aggregate_position_usd": 2.1e9, "n_holders": 5, "n_usd_aum_holders": 3}
   ]
 }
 """
@@ -95,136 +57,53 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 from extract_holdings import is_accepted
 
-# Canonical tuning constants — do not duplicate elsewhere.
-# Tuning notes: starting defaults, may be calibrated later.
-_AVG_WEIGHT_THRESHOLD = 0.02    # below this, no crowding discount applies
-_WEIGHT_RANGE = 0.08            # range to full discount: at avg_weight = 10%, full discount
-_FUND_DENOMINATOR = 5.0         # 5+ funds at moderate weight starts to suggest crowding
-_MAX_DISCOUNT = 0.60            # cap crowding discount at 60%
+# Days-to-liquidate at/above which a position is exit-crowded. Uncalibrated —
+# a round number separating "days" from "weeks"; labelled as such in reports.
+_DTL_FULL = 10.0
 
-# A2 days-to-liquidate constants (v0.3) — starting defaults, calibrate later.
-_DTL_FULL = 10.0               # days_to_liquidate at/above which liq amplifier saturates
-_LIQ_WEIGHT = 0.50            # max fractional uplift to crowding_raw from full illiquidity
-
-# A3 style-diversity constants (v0.3).
-# A fully style-homogeneous consensus retains STYLE_MIN_FACTOR of its weight;
-# a fully style-diverse consensus retains 1.0.
-_STYLE_MIN_FACTOR = 0.50
-# Input-set homogeneity: dominant style share at/above which the run's
-# consensus is flagged "largely uninformative" (Appendix 3 payload).
+# Input-set homogeneity (display only): dominant style share at/above which
+# the run's style distribution is flagged homogeneous (Appendix 3).
 _HOMOGENEITY_THRESHOLD = 0.80
 
-# Coarse style vocabulary (must match Stage 1a fund-style inference / A3).
+# Coarse style vocabulary (must match Stage 1a fund-style inference).
 _KNOWN_STYLES = {
     "value", "growth", "blend", "income_dividend",
     "sector_specific", "small_mid_cap", "region_tilt_non_us",
 }
 
+LIQUIDITY_INCLUSIVE = "liquidity-inclusive"
+NO_LIQUIDITY_DATA = "no-liquidity-data"
+
 
 @dataclass
-class CrowdingResult:
+class ExitLiquidity:
     ticker: str
-    consensus_raw: float
-    consensus_weighted: float
-    style_diversity: Optional[float]
-    n_distinct_styles: Optional[int]
-    crowding_discount: float
     days_to_liquidate: Optional[float]
-    crowding_label: str         # "liquidity-inclusive" | "NAV-only"
-    signal: float               # consensus_weighted * (1 - crowding_discount)
-    is_high_crowding: bool      # True when crowding_discount >= 0.30
-
-
-def _clamp(x: float, lo: float, hi: float) -> float:
-    return max(lo, min(hi, x))
-
-
-def style_diversity_factor(
-    holder_styles: Optional[list[str]],
-    n_funds_holding: int,
-) -> tuple[Optional[float], Optional[int], float]:
-    """Return (diversity, n_distinct_styles, consensus_factor).
-
-    diversity in [0, 1]: 0 when all holders share one style, ->1 when many
-    distinct styles. consensus_factor maps that onto [STYLE_MIN_FACTOR, 1].
-    When styles are unavailable, returns (None, None, 1.0) — no weighting.
-    """
-    styles = [s for s in (holder_styles or []) if s]
-    if not styles or n_funds_holding < 2:
-        # No style info, or a single holder (consensus carries no info anyway).
-        return None, None, 1.0
-    n_distinct = len(set(styles))
-    diversity = (n_distinct - 1) / max(n_funds_holding - 1, 1)
-    diversity = _clamp(diversity, 0.0, 1.0)
-    factor = _STYLE_MIN_FACTOR + (1.0 - _STYLE_MIN_FACTOR) * diversity
-    return round(diversity, 4), n_distinct, factor
+    liquidity_label: str        # "liquidity-inclusive" | "no-liquidity-data"
+    is_exit_crowded: bool       # days_to_liquidate >= _DTL_FULL (uncalibrated)
 
 
 def compute(
     ticker: str,
-    n_funds_holding: int,
-    avg_weight: float,
     adv_usd: Optional[float] = None,
     aggregate_position_usd: Optional[float] = None,
-    holder_styles: Optional[list[str]] = None,
-) -> CrowdingResult:
+) -> ExitLiquidity:
+    """Days-to-liquidate for one ticker, or a no-liquidity-data label.
+
+    Both inputs are USD: ADV always is, and the aggregate admits USD-reported
+    AUM only (fund_aum_map). Either missing -> no figure, never a guess.
     """
-    Compute the consensus-with-crowding-discount signal for one ticker.
-
-    Args:
-        ticker: stock ticker
-        n_funds_holding: number of funds in the universe holding this ticker
-        avg_weight: mean weight across funds where the ticker is held (decimal, e.g. 0.05)
-        adv_usd: average daily traded value in USD (A2 exit-liquidity); None -> NAV-only
-        aggregate_position_usd: Σ fund_AUM × weight (A2); None -> NAV-only
-        holder_styles: style labels of the funds holding the ticker (A3)
-    """
-    consensus_raw = math.log(1 + n_funds_holding)
-
-    # A3: style-diversity weighting of consensus.
-    diversity, n_distinct, style_factor = style_diversity_factor(
-        holder_styles, n_funds_holding
-    )
-    consensus_weighted = consensus_raw * style_factor
-
-    # Base (v0.2) NAV-relative crowding.
-    crowding_raw = (
-        max(0.0, (avg_weight - _AVG_WEIGHT_THRESHOLD) / _WEIGHT_RANGE)
-        * (n_funds_holding / _FUND_DENOMINATOR)
-    )
-
-    # A2: fold days-to-liquidate into the discount when liquidity data exists.
-    days_to_liquidate: Optional[float] = None
-    crowding_label = "NAV-only"
     if (adv_usd and adv_usd > 0
             and aggregate_position_usd is not None and aggregate_position_usd > 0):
-        days_to_liquidate = aggregate_position_usd / adv_usd
-        liq = _clamp(days_to_liquidate / _DTL_FULL, 0.0, 1.0)
-        crowding_raw = crowding_raw * (1.0 + _LIQ_WEIGHT * liq)
-        crowding_label = "liquidity-inclusive"
-
-    crowding_discount = min(crowding_raw, _MAX_DISCOUNT)
-    signal = consensus_weighted * (1 - crowding_discount)
-
-    return CrowdingResult(
-        ticker=ticker,
-        consensus_raw=round(consensus_raw, 4),
-        consensus_weighted=round(consensus_weighted, 4),
-        style_diversity=diversity,
-        n_distinct_styles=n_distinct,
-        crowding_discount=round(crowding_discount, 4),
-        days_to_liquidate=round(days_to_liquidate, 4) if days_to_liquidate is not None else None,
-        crowding_label=crowding_label,
-        signal=round(signal, 4),
-        is_high_crowding=crowding_discount >= 0.30,
-    )
+        dtl = aggregate_position_usd / adv_usd
+        return ExitLiquidity(ticker, round(dtl, 4), LIQUIDITY_INCLUSIVE, dtl >= _DTL_FULL)
+    return ExitLiquidity(ticker, None, NO_LIQUIDITY_DATA, False)
 
 
 def _accepted_funds(holdings: dict) -> list[dict]:
@@ -235,10 +114,9 @@ def _accepted_funds(holdings: dict) -> list[dict]:
 def fund_style_map(holdings: dict) -> dict[str, str]:
     """fund_id -> coarse style label, over accepted funds only (A3).
 
-    A fund's reporting currency has no bearing here: G1.2 excludes non-USD AUM
-    from the exit-liquidity aggregate only. Such funds still count toward
-    n_funds_holding, weights and style diversity — their holdings are data, it
-    is only their AUM that is in unknown units.
+    Display only (v0.4): style labels are LLM-inferred and never enter the
+    rank (I9). A fund's reporting currency has no bearing here: G1.2 excludes
+    non-USD AUM from the exit-liquidity aggregate only.
     """
     style_by_fund: dict[str, str] = {}
     for f in _accepted_funds(holdings):
@@ -261,9 +139,9 @@ def fund_aum_map(holdings: dict) -> tuple[dict[str, float], dict]:
     would overstate days-to-liquidate by roughly the FX rate, silently.
 
     A fund whose currency is non-USD *or* null is omitted from the map. This
-    needs no new logic downstream: A2 already handles a fund without usable AUM
-    by dropping it from the aggregate, and a ticker left with no usable AUM
-    falls back to `crowding_label = "NAV-only"`. Exclusion — never conversion:
+    needs no new logic downstream: a fund without usable AUM drops out of the
+    aggregate, and a ticker left with no usable AUM is labelled
+    `no-liquidity-data`. Exclusion — never conversion:
     FX would require a rate source, a rate-date policy and a new provenance
     path, three new failure modes to repair a metric that already degrades
     cleanly (G1.3). **Do not add FX conversion here.**
@@ -314,8 +192,8 @@ def fund_aum_map(holdings: dict) -> tuple[dict[str, float], dict]:
 def thin_exposure_report(holdings: dict) -> dict:
     """v0.32 G2: accepted funds flagged thin at Stage 1b, for disclosure only.
 
-    Nothing in this module reads the flag to change a number — exposure-
-    weighting the consensus would alter C, whose definition is locked.
+    Nothing reads the flag to change a number: a thin fund's votes count
+    in full in consensus_signal.py.
     """
     accepted = _accepted_funds(holdings)
     thin = [
@@ -343,7 +221,7 @@ def _fund_maps(holdings: dict) -> tuple[dict[str, float], dict[str, str], dict]:
 
 
 def homogeneity_report(style_by_fund: dict[str, str], n_funds: int) -> dict:
-    """Run-level style concentration over the input set of funds (A3)."""
+    """Run-level style concentration over the input set of funds (display only)."""
     if not style_by_fund:
         return {
             "labelled": False,
@@ -370,7 +248,7 @@ def homogeneity_report(style_by_fund: dict[str, str], n_funds: int) -> dict:
 
 
 def _adv_by_ticker(fundamentals: dict) -> dict[str, float]:
-    """Extract adv USD per ticker from fundamentals.json (A2 exit-liquidity)."""
+    """Extract adv USD per ticker from fundamentals.json (exit liquidity)."""
     out: dict[str, float] = {}
     for tkr, rec in fundamentals.items():
         adv = (rec or {}).get("adv")
@@ -383,10 +261,10 @@ def _adv_by_ticker(fundamentals: dict) -> dict[str, float]:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--overlap", required=True, help="overlap.json from overlap_analysis.py")
-    ap.add_argument("--holdings", help="holdings.json (A2 fund AUM + A3 fund styles). "
-                                       "Optional: absent -> NAV-only, style-unlabelled.")
-    ap.add_argument("--fundamentals", help="fundamentals.json (A2 per-ticker adv USD). "
-                                           "Optional: absent -> NAV-only.")
+    ap.add_argument("--holdings", help="holdings.json (fund AUM, currency, style). "
+                                       "Optional: absent -> no liquidity data.")
+    ap.add_argument("--fundamentals", help="fundamentals.json (per-ticker ADV in USD). "
+                                           "Optional: absent -> no liquidity data.")
     ap.add_argument("--out", required=True, help="Output crowding_signals.json path")
     args = ap.parse_args()
 
@@ -416,55 +294,34 @@ def main():
         ticker = r.get("ticker")
         if not ticker:
             continue
-
         held_by = r.get("held_by", []) or []
         weights_by_fund = r.get("weights_by_fund", {}) or {}
 
-        # A2: aggregate position $ across holders that disclose a USD AUM.
+        # Aggregate position $ across holders that disclose a USD AUM.
         # `aum_by_fund` is USD-only by construction (G1.2), so this sum is
         # USD-true and its name is accurate rather than aspirational — do not
         # widen the map to other currencies without converting, and conversion
-        # is deliberately out of scope. If no holder contributes, the aggregate
-        # is None -> NAV-only fallback.
-        aggregate_position_usd: Optional[float] = None
-        if aum_by_fund:
-            acc = 0.0
-            any_aum = False
-            for fid in held_by:
-                aum = aum_by_fund.get(fid)
-                w = weights_by_fund.get(fid)
-                if aum is not None and isinstance(w, (int, float)):
-                    acc += aum * w
-                    any_aum = True
-            if any_aum:
-                aggregate_position_usd = acc
+        # is deliberately out of scope.
+        usd_holders = [fid for fid in held_by
+                       if fid in aum_by_fund and isinstance(weights_by_fund.get(fid), (int, float))]
+        aggregate_position_usd = (sum(aum_by_fund[fid] * weights_by_fund[fid] for fid in usd_holders)
+                                  if usd_holders else None)
 
-        # A3: styles of the funds holding this ticker.
-        holder_styles = [style_by_fund[fid] for fid in held_by if fid in style_by_fund]
-
-        result = compute(
-            ticker=ticker,
-            n_funds_holding=int(r.get("n_funds_holding", 0)),
-            avg_weight=float(r.get("avg_weight", 0.0)),
-            adv_usd=adv_by_ticker.get(ticker),
-            aggregate_position_usd=aggregate_position_usd,
-            holder_styles=holder_styles or None,
-        )
+        result = compute(ticker, adv_by_ticker.get(ticker), aggregate_position_usd)
         signals.append({
             "ticker": result.ticker,
-            "consensus_raw": result.consensus_raw,
-            "consensus_weighted": result.consensus_weighted,
-            "style_diversity": result.style_diversity,
-            "n_distinct_styles": result.n_distinct_styles,
-            "crowding_discount": result.crowding_discount,
             "days_to_liquidate": result.days_to_liquidate,
-            "crowding_label": result.crowding_label,
-            "signal": result.signal,
-            "is_high_crowding": result.is_high_crowding,
+            "liquidity_label": result.liquidity_label,
+            "is_exit_crowded": result.is_exit_crowded,
+            "aggregate_position_usd": round(aggregate_position_usd, 2)
+            if aggregate_position_usd is not None else None,
+            "n_holders": len(held_by),
+            "n_usd_aum_holders": len(usd_holders),
         })
 
     out = {
         "n_signals": len(signals),
+        "dtl_threshold": _DTL_FULL,
         "homogeneity": homogeneity,
         # v0.32 G4: the input-review findings that Layer 2 and Appendix 3 report.
         # Carried here because both already read this file; nothing below reads
@@ -478,9 +335,10 @@ def main():
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"Crowding signals: {len(signals)} -> {out_path} "
-          f"(homogeneous={homogeneity['is_homogeneous']}, "
-          f"dominant_style={homogeneity['dominant_style']}, "
+    n_liq = sum(1 for x in signals if x["liquidity_label"] == LIQUIDITY_INCLUSIVE)
+    n_crowded = sum(1 for x in signals if x["is_exit_crowded"])
+    print(f"Exit liquidity: {len(signals)} tickers -> {out_path} "
+          f"({n_liq} with days-to-liquidate, {n_crowded} at >= {_DTL_FULL:g} days; "
           f"currency_excluded={currency_report.get('n_excluded_for_currency', 0)}, "
           f"thin_funds={thin_report.get('n_thin', 0)})")
 

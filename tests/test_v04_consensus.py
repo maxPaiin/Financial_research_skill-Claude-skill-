@@ -480,5 +480,33 @@ class TestConsensusIgnoresStyle(unittest.TestCase):
             self.assertFalse(banned in text.lower(), f"consensus_signal.py mentions {banned!r}")
 
 
+class TestNoLegacyWeights(unittest.TestCase):
+    """I4 — structural test (spec §8.3): never delete.
+
+    The ranking is an ordering of keys; no uncalibrated weight may return to
+    the pipeline. The v0.33 composite weights and crowding constants live only
+    in scripts/dev/legacy_v033.py, for comparison runs.
+    """
+
+    import re as _re
+    _LEGACY = _re.compile(
+        r"\b_(?:QUALITY_WEIGHT|CONSENSUS_WEIGHT|MAX_DISCOUNT|AVG_WEIGHT_THRESHOLD|"
+        r"WEIGHT_RANGE|FUND_DENOMINATOR|LIQ_WEIGHT|STYLE_MIN_FACTOR)\b")
+
+    def test_v033_weights_live_only_under_dev(self):
+        scripts = _REPO_ROOT / "scripts"
+        offenders = sorted(
+            str(path.relative_to(scripts)) for path in scripts.rglob("*.py")
+            if "dev" not in path.relative_to(scripts).parts
+            and self._LEGACY.search(path.read_text(encoding="utf-8")))
+        self.assertEqual(offenders, [])
+
+    def test_the_comparison_copy_still_has_them(self):
+        text = (_REPO_ROOT / "scripts" / "dev" / "legacy_v033.py").read_text(encoding="utf-8")
+        self.assertIn("_QUALITY_WEIGHT = 0.50", text)
+        self.assertIn("_CONSENSUS_WEIGHT = 0.50", text)
+        self.assertIn("_MAX_DISCOUNT = 0.60", text)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -226,62 +226,46 @@ class TestQualityScreen(unittest.TestCase):
 
 
 # -----------------------------------------------------------------------------
-# crowding_signal — compute() math
+# crowding_signal — exit liquidity (v0.4 B6: days-to-liquidate only; the
+# consensus signal moved to consensus_signal.py and crowding left the rank)
 # -----------------------------------------------------------------------------
 
 class TestCrowdingSignal(unittest.TestCase):
-    def test_no_crowding_when_below_threshold(self):
+    def test_no_liquidity_data_without_aum_or_adv(self):
         from crowding_signal import compute
-        # avg_weight 1% is below the 2% threshold → no discount
-        result = compute("X", n_funds_holding=3, avg_weight=0.01)
-        self.assertEqual(result.crowding_discount, 0.0)
-        self.assertFalse(result.is_high_crowding)
+        for kwargs in ({}, {"adv_usd": 5e7}, {"aggregate_position_usd": 2e9},
+                       {"adv_usd": 0.0, "aggregate_position_usd": 2e9}):
+            with self.subTest(**kwargs):
+                r = compute("X", **kwargs)
+                self.assertEqual(r.liquidity_label, "no-liquidity-data")
+                self.assertIsNone(r.days_to_liquidate)
+                self.assertFalse(r.is_exit_crowded)
 
-    def test_crowding_grows_with_weight_and_funds(self):
+    def test_days_to_liquidate_is_position_over_adv(self):
         from crowding_signal import compute
-        low = compute("X", n_funds_holding=3, avg_weight=0.03)
-        high = compute("X", n_funds_holding=8, avg_weight=0.08)
-        self.assertGreater(high.crowding_discount, low.crowding_discount)
+        r = compute("X", adv_usd=5e8, aggregate_position_usd=2e9)
+        self.assertEqual(r.liquidity_label, "liquidity-inclusive")
+        self.assertEqual(r.days_to_liquidate, 4.0)
+        self.assertFalse(r.is_exit_crowded)
 
-    def test_discount_capped(self):
+    def test_exit_crowded_at_ten_days(self):
         from crowding_signal import compute
-        result = compute("X", n_funds_holding=20, avg_weight=0.20)
-        self.assertLessEqual(result.crowding_discount, 0.60)
+        self.assertTrue(compute("X", adv_usd=1e8, aggregate_position_usd=1e9).is_exit_crowded)
+        self.assertFalse(compute("X", adv_usd=1e8, aggregate_position_usd=9.9e8).is_exit_crowded)
 
-    # --- A2: days-to-liquidate (v0.3) ---
-    def test_nav_only_fallback_when_no_liquidity_data(self):
+    def test_illiquid_midcap_takes_longer_to_exit(self):
         from crowding_signal import compute
-        r = compute("X", n_funds_holding=4, avg_weight=0.03)
-        self.assertEqual(r.crowding_label, "NAV-only")
-        self.assertIsNone(r.days_to_liquidate)
-        # NAV-only must equal the pure-weight base (no amplifier).
-        base = max(0.0, (0.03 - 0.02) / 0.08) * (4 / 5.0)
-        self.assertAlmostEqual(r.crowding_discount, round(base, 4), places=4)
-
-    def test_illiquid_midcap_penalised_harder(self):
-        from crowding_signal import compute
-        big = compute("BIG", 4, 0.03, adv_usd=5e9, aggregate_position_usd=2e9)
-        mid = compute("MID", 4, 0.03, adv_usd=5e7, aggregate_position_usd=2e9)
-        self.assertEqual(big.crowding_label, "liquidity-inclusive")
+        big = compute("BIG", adv_usd=5e9, aggregate_position_usd=2e9)
+        mid = compute("MID", adv_usd=5e7, aggregate_position_usd=2e9)
         self.assertGreater(mid.days_to_liquidate, big.days_to_liquidate)
-        self.assertGreater(mid.crowding_discount, big.crowding_discount)
+        self.assertTrue(mid.is_exit_crowded)
 
-    # --- A3: style-diversity-weighted consensus (v0.3) ---
-    def test_diverse_holders_beat_homogeneous(self):
+    def test_position_size_alone_never_crowds(self):
+        # F2: v0.3's discount saturated at a 10% NAV weight — conviction, not
+        # exit risk. A mega-cap held heavily by every fund is not exit-crowded.
         from crowding_signal import compute
-        homo = compute("H", 6, 0.03, holder_styles=["growth"] * 6)
-        divr = compute("D", 6, 0.03, holder_styles=[
-            "growth", "value", "blend", "income_dividend",
-            "small_mid_cap", "region_tilt_non_us"])
-        self.assertEqual(homo.style_diversity, 0.0)
-        self.assertEqual(divr.style_diversity, 1.0)
-        self.assertGreater(divr.consensus_weighted, homo.consensus_weighted)
-
-    def test_unlabelled_styles_no_weighting(self):
-        from crowding_signal import compute
-        r = compute("X", 5, 0.03, holder_styles=None)
-        self.assertIsNone(r.style_diversity)
-        self.assertEqual(r.consensus_weighted, r.consensus_raw)
+        r = compute("MEGA", adv_usd=2e10, aggregate_position_usd=1.1e9)
+        self.assertFalse(r.is_exit_crowded)
 
     def test_homogeneity_report(self):
         from crowding_signal import homogeneity_report
@@ -1050,11 +1034,11 @@ class TestCurrencyAumGate(unittest.TestCase):
         from crowding_signal import compute, fund_aum_map
         aum, _ = fund_aum_map({"funds": [
             self._fund("F2", "HKD"), self._fund("F3", None)]})
-        # No holder contributes AUM -> aggregate stays None -> NAV-only.
+        # No holder contributes AUM -> aggregate stays None -> no liquidity
+        # data (v0.4 B6: the label that replaced "NAV-only").
         aggregate = sum(aum[f] * 0.05 for f in ("F2", "F3") if f in aum) or None
-        r = compute("X", n_funds_holding=2, avg_weight=0.05,
-                    adv_usd=5e7, aggregate_position_usd=aggregate)
-        self.assertEqual(r.crowding_label, "NAV-only")
+        r = compute("X", adv_usd=5e7, aggregate_position_usd=aggregate)
+        self.assertEqual(r.liquidity_label, "no-liquidity-data")
         self.assertIsNone(r.days_to_liquidate)
 
     def test_usd_fund_without_aum_is_not_a_currency_exclusion(self):
@@ -1124,17 +1108,26 @@ class TestThinUsExposure(unittest.TestCase):
         self.assertTrue(is_thin_us_exposure(scope["weight_kept"]))
 
     def test_flag_does_not_change_the_consensus_contribution(self):
-        # G2 warns instead of down-weighting: C's definition is locked.
-        from crowding_signal import compute, thin_exposure_report
-        base = compute("X", 5, 0.03, holder_styles=["growth", "value"])
-        report = thin_exposure_report({"funds": [{
-            "fund_id": "F1", "fund_name": "Thin Global", "rejected": False,
-            "thin_us_exposure": True, "scope_summary": {"weight_kept": 0.21},
-        }]})
-        after = compute("X", 5, 0.03, holder_styles=["growth", "value"])
+        # G2 warns instead of down-weighting. v0.4: the consensus lives in
+        # consensus_signal.py, and a thin fund's votes count in full there.
+        from consensus_signal import compute
+        from crowding_signal import thin_exposure_report
+
+        def funds(thin: bool):
+            return {"funds": [
+                {"fund_id": f"F{i}", "fund_name": f"Fund {i}", "rejected": False,
+                 "thin_us_exposure": thin and i == 1,
+                 "scope_summary": {"weight_kept": 0.21 if thin and i == 1 else 0.6},
+                 "holdings_us": [{"ticker_normalized": "X", "weight": 0.03},
+                                 {"ticker_normalized": f"OWN{i}", "weight": 0.03}]}
+                for i in (1, 2, 3)]}
+
+        report = thin_exposure_report(funds(thin=True))
         self.assertEqual(report["n_thin"], 1)
-        self.assertEqual(base.consensus_weighted, after.consensus_weighted)
-        self.assertEqual(base.signal, after.signal)
+        before, after = compute(funds(thin=False)), compute(funds(thin=True))
+        row = lambda out: next(r for r in out["stocks"] if r["ticker"] == "X")
+        self.assertEqual(row(before)["c_share"], row(after)["c_share"])
+        self.assertEqual(row(before)["n_votes"], row(after)["n_votes"])
 
     def test_report_is_empty_when_no_fund_is_thin(self):
         from crowding_signal import thin_exposure_report
