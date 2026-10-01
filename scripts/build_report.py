@@ -518,10 +518,10 @@ def main():
                     help="Skip copying checkpoint .md files to the outputs dir.")
     args = ap.parse_args()
 
-    work_dir = Path(args.work_dir)
-    build_pdf(work_dir, Path(args.out))
+    work = Path(args.work_dir)
+    build_pdf(work, Path(args.out))
     if not args.no_copy_checkpoints:
-        copy_checkpoints(work_dir, Path(args.outputs_dir))
+        copy_checkpoints(work, Path(args.outputs_dir))
 
 
 if __name__ == "__main__":

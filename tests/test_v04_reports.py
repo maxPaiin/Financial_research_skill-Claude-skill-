@@ -279,6 +279,16 @@ class TestGate(unittest.TestCase):
             self.assertTrue(any("no demotion" in p for p in problems))
 
 
+class TestPercentSanityBound(unittest.TestCase):
+    def test_real_roe_above_100_percent_passes_and_gross_errors_fail(self):
+        # Found by the C6 dry run: Apple's recorded EDGAR ROE (163.9%) failed
+        # the old +/-100% bound and would have blocked every real run.
+        from check_checkpoints import _check_percent_ranges
+        self.assertEqual(_check_percent_ranges("| AAPL | 163.9% (5y; edgar) |"), [])
+        self.assertEqual(_check_percent_ranges("weight 4500%"),
+                         ["percentage out of range: 4500%"])
+
+
 class TestPdfIncludesTheNewSections(unittest.TestCase):
     def test_pdf_builds_with_cards_and_the_anchored_core(self):
         try:

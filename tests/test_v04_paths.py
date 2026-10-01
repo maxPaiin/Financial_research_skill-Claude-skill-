@@ -98,6 +98,17 @@ class TestDefaultsReachTheScripts(unittest.TestCase):
             self.assertEqual(run.returncode, 0, run.stderr)
             self.assertTrue((tmp / "work" / "layer1_extraction.md").exists())
 
+    def test_every_cli_with_a_paths_default_starts(self):
+        # Regression: a local `work_dir` in build_report.main() shadowed
+        # paths.work_dir() and crashed the CLI before argument parsing.
+        for script in ("build_report.py", "layer1_report.py", "layer2_report.py",
+                       "layer3_report.py", "extract_candidates.py", "render_page.py",
+                       "apply_review.py", "run_phase.py"):
+            with self.subTest(script=script):
+                run = subprocess.run([sys.executable, str(_REPO_ROOT / "scripts" / script),
+                                      "--help"], capture_output=True, text=True, timeout=60)
+                self.assertEqual(run.returncode, 0, run.stderr[-400:])
+
     def test_provenance_defaults_to_the_work_dir(self):
         from providers import resolver
         with tempfile.TemporaryDirectory() as tmp, \

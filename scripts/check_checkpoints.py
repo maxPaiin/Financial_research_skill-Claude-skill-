@@ -84,8 +84,15 @@ _CITATION_RE = re.compile(r"\[[^\]\n]+\]")
 _PERCENT_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*%")
 
 
+# A sanity bound, not a statistic. ROE can legitimately exceed 100% — a company
+# that buys back most of its equity (Apple's ROE is about 160%) — so the bound
+# sits at +/-1000%: wide enough for real ratios, narrow enough to catch a gross
+# formatting error such as a weight printed in basis points (4500%).
+_PERCENT_BOUND = 1000.0
+
+
 def _check_percent_ranges(text: str) -> list[str]:
-    """Cheap range sanity: percentage figures should sit in [-100, 100]%.
+    """Cheap range sanity: percentage figures should sit in [-1000, 1000]%.
 
     Catches gross extraction/formatting errors (e.g. a stray 4500%). This is a
     sanity floor, not a statistical check.
@@ -96,7 +103,7 @@ def _check_percent_ranges(text: str) -> list[str]:
             v = float(m.group(1))
         except ValueError:
             continue
-        if v < -100.0 or v > 100.0:
+        if v < -_PERCENT_BOUND or v > _PERCENT_BOUND:
             problems.append(f"percentage out of range: {m.group(0)}")
     return problems
 

@@ -302,6 +302,7 @@ written — is the overlay's input, and anything placed there can move a display
 │   └── ticker_aliases.json           # v0.34: curated name -> ticker aliases (EN, zh-Hant, zh-Hans)
 ├── scripts/                          # Deterministic computation (no LLM calls)
 │   ├── paths.py                      # v0.4: runtime directories (claude.ai or Claude Code CLI)
+│   ├── run_phase.py                  # v0.4: phase runner p1–p6 + status (short summaries)
 │   ├── validate_uploads.py           # Stage 0: one .zip (v0.4) or a folder; email gate; advisories
 │   ├── extract_candidates.py         # v0.4 Stage 1a: scripted factsheet extraction + summary
 │   ├── render_page.py                # v0.4: one factsheet page -> PNG, for a flagged field
@@ -381,6 +382,26 @@ Code runs in: working files in `./fr_work`, the PDF report and checkpoint copies
 ## Usage
 
 This is a Claude skill — put 7–11 HKMA-approved fund factsheet PDFs into **one `.zip`**, upload it, and run `/financial-research` (or ask Claude for fund analysis). The skill runs the full pipeline and surfaces a downloadable PDF report.
+
+The deterministic stages run through the **phase runner** (v0.4) — one command per phase,
+each printing a short summary and the next step:
+
+```bash
+export EDGAR_CONTACT_EMAIL=you@example.com     # or pass --email; it is never stored
+python scripts/run_phase.py p1 /path/to/funds.zip   # Stage 0 + scripted Stage 1a
+#   ... Claude reviews the flagged fields (render_page.py + apply_review.py)
+python scripts/run_phase.py p2                      # listing check, dedupe, Layer 1
+python scripts/run_phase.py p3                      # fundamentals, screen, consensus, Layer 2
+python scripts/run_phase.py p4                      # ranking, ETF relative strength
+#   ... Claude: M1 + M1b (macro, sector logic) for the ranked industries
+python scripts/run_phase.py p5                      # coherence overlay
+#   ... Claude: rationale cards, framing, appendices, Important Notice
+python scripts/run_phase.py p6                      # Layer 3, checkpoint gate, PDF
+python scripts/run_phase.py status                  # what has run, what is stale
+```
+
+`--vote-basis presence` / `--vote-floor none` on `p3` are sensitivity runs; `--replay-dir`
+runs a phase offline from recorded inputs.
 
 For local development, individual scripts can be run directly:
 

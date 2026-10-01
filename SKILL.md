@@ -16,6 +16,12 @@ description: Ranks US-listed equities, including ADRs, surfaced by 7-11 Hong Kon
 
 ## Pipeline orchestration
 
+> **Run the deterministic stages through the phase runner (v0.4 C6)** — one call per phase,
+> a ≤ 15-line summary and the next step, never a large JSON in the conversation:
+> `run_phase.py p1 <uploads.zip>` → review → `p2` → `p3` → `p4` → M1/M1b → `p5` →
+> 3b/3c/M2/M3/H1 → `p6`; `run_phase.py status` shows progress. Pass the SEC email with
+> `--email` or `EDGAR_CONTACT_EMAIL`; it is never stored. The table lists what each phase runs.
+
 | Stage | Script / Actor | Reads | Writes |
 |---|---|---|---|
 | 0 | `validate_uploads.py <uploads.zip \| dir> --email <e> --out stage0_validation.json` | **one .zip** (or a dir on the CLI) + email | stdout (errors) + `stage0_validation.json` (`input.pdf_dir` = where the PDFs are); **regional advisories on stderr (G3, non-blocking)** |
