@@ -1,0 +1,29 @@
+{
+ "_synthetic": "Synthetic yfinance replay data for v0.4 tests (YF_REPLAY_DIR); not recorded from Yahoo. Equity turns negative in the latest year.",
+ "info": {
+  "symbol": "TSTN",
+  "returnOnEquity": 2.5,
+  "netIncomeToCommon": 8000000000.0,
+  "debtToEquity": 120.0,
+  "enterpriseToEbitda": 19.0,
+  "bookValue": -5.0,
+  "sector": "Consumer Cyclical",
+  "country": "United States"
+ },
+ "income_stmt": {
+  "2024-12-31": {
+   "Net Income": 7000000000.0
+  },
+  "2025-12-31": {
+   "Net Income Common Stockholders": -1000000000.0
+  }
+ },
+ "balance_sheet": {
+  "2024-12-31": {
+   "Stockholders Equity": 3500000000.0
+  },
+  "2025-12-31": {
+   "Stockholders Equity": -4000000000.0
+  }
+ }
+}

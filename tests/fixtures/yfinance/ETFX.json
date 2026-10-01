@@ -1,0 +1,14 @@
+{
+ "_synthetic": "Synthetic yfinance replay data for v0.4 tests (YF_REPLAY_DIR); not recorded from Yahoo. An ETF's top holdings in Yahoo's symbol forms.",
+ "info": {
+  "symbol": "ETFX",
+  "quoteType": "ETF"
+ },
+ "top_holdings": {
+  "AAPL": 0.141,
+  "MSFT": 0.128,
+  "BRK-B": 0.031,
+  "2330.TW": 0.022,
+  "ZERO": 0.0
+ }
+}

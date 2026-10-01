@@ -1,0 +1,26 @@
+{
+ "_synthetic": "Synthetic yfinance replay data for v0.4 tests (YF_REPLAY_DIR); not recorded from Yahoo. Exists to test the BRK.B -> BRK-B symbol mapping; the numbers are not Berkshire's.",
+ "info": {
+  "symbol": "BRK-B",
+  "debtToEquity": 20.0,
+  "enterpriseToEbitda": 9.0,
+  "sector": "Financial Services",
+  "country": "United States"
+ },
+ "income_stmt": {
+  "2024-12-31": {
+   "Net Income": 90000000000.0
+  },
+  "2025-12-31": {
+   "Net Income": 80000000000.0
+  }
+ },
+ "balance_sheet": {
+  "2024-12-31": {
+   "Stockholders Equity": 600000000000.0
+  },
+  "2025-12-31": {
+   "Stockholders Equity": 640000000000.0
+  }
+ }
+}

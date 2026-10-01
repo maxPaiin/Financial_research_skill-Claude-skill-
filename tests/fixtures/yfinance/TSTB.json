@@ -1,0 +1,13 @@
+{
+ "_synthetic": "Synthetic yfinance replay data for v0.4 tests (YF_REPLAY_DIR); not recorded from Yahoo. Trailing-twelve-month figures only, no annual statements.",
+ "info": {
+  "symbol": "TSTB",
+  "returnOnEquity": 0.21,
+  "netIncomeToCommon": 1200000000.0,
+  "debtToEquity": 80.0,
+  "enterpriseToEbitda": 12.0,
+  "bookValue": 25.0,
+  "sector": "Consumer Cyclical",
+  "country": "United States"
+ }
+}
