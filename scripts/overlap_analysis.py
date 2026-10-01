@@ -24,7 +24,7 @@ def build_overlap(unique_universe: list[dict]) -> list[dict]:
             "avg_weight": u.get("avg_weight", 0.0),
             "max_weight": u.get("max_weight", 0.0),
         })
-    rows.sort(key=lambda r: (-r["n_funds_holding"], -r["avg_weight"]))
+    rows.sort(key=lambda r: (-r["n_funds_holding"], -r["avg_weight"], r["ticker"]))
     return rows
 
 

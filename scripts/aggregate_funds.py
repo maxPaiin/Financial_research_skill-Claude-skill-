@@ -62,11 +62,11 @@ def main():
 
         ranked = sorted(
             [c for c in contributors if c["fundamental_quality_score"] is not None],
-            key=lambda c: (c["fundamental_quality_score"] or 0) * c["weight"],
-            reverse=True,
+            key=lambda c: (-(c["fundamental_quality_score"] or 0) * c["weight"], c["ticker"]),
         )
 
-        max_industry = max(industry_weights.items(), key=lambda kv: kv[1], default=(None, 0))
+        max_industry = min(industry_weights.items(), key=lambda kv: (-kv[1], kv[0]),
+                           default=(None, 0))
 
         fund_aggregates.append({
             "fund_id": fund.get("fund_id"),
@@ -75,7 +75,8 @@ def main():
             "asof": fund.get("asof"),
             "n_holdings_scored": len(contributors),
             "weighted_fundamental_quality": weighted_avg(fq_pairs),
-            "industry_breakdown": dict(sorted(industry_weights.items(), key=lambda kv: -kv[1])),
+            "industry_breakdown": dict(sorted(industry_weights.items(),
+                                              key=lambda kv: (-kv[1], kv[0]))),
             "max_industry": max_industry[0],
             "max_industry_weight": round(max_industry[1], 4),
             "top_contributors": ranked[:5],

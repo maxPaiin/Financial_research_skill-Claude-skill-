@@ -162,8 +162,10 @@ def rank(scores_data: dict, crowding_data: dict, overlap_data: dict) -> dict:
             2,
         )
 
-    # Sort descending, take top 15
-    candidates.sort(key=lambda x: -x["composite_score"])
+    # Sort descending, take top 15. The ticker is the last key of every sort
+    # that decides a rank, so tied scores never order by input position
+    # (v0.34 A7, I10: the same inputs give a byte-identical rankings.json).
+    candidates.sort(key=lambda x: (-x["composite_score"], x["ticker"]))
     top15 = candidates[:_TOP_N]
 
     for i, c in enumerate(top15, start=1):

@@ -313,7 +313,7 @@ def dedupe(holdings_data: dict) -> dict:
         e["sum_of_weights"] = round(sum(weights), 4)
         result.append(e)
 
-    result.sort(key=lambda x: (-x["n_funds_holding"], -x["max_weight"]))
+    result.sort(key=lambda x: (-x["n_funds_holding"], -x["max_weight"], x["ticker"] or ""))
     holdings_data["unique_universe"] = result
     holdings_data["universe_size"] = len(result)
     return holdings_data

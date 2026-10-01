@@ -141,7 +141,7 @@ def passed_industries(results: list[dict]) -> dict[str, int]:
             continue
         bucket = r.get("industry") or "other"
         census[bucket] = census.get(bucket, 0) + 1
-    return dict(sorted(census.items(), key=lambda kv: -kv[1]))
+    return dict(sorted(census.items(), key=lambda kv: (-kv[1], kv[0])))
 
 
 def _max_consecutive_negatives(values: list[float]) -> int:

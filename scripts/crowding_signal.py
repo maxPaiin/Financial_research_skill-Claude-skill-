@@ -354,14 +354,14 @@ def homogeneity_report(style_by_fund: dict[str, str], n_funds: int) -> dict:
     for s in style_by_fund.values():
         dist[s] = dist.get(s, 0) + 1
     total = sum(dist.values())
-    dominant_style, dominant_count = max(dist.items(), key=lambda kv: kv[1])
+    dominant_style, dominant_count = min(dist.items(), key=lambda kv: (-kv[1], kv[0]))
     dominant_share = dominant_count / total if total else 0.0
     return {
         "labelled": True,
         "dominant_style": dominant_style,
         "dominant_share": round(dominant_share, 4),
         "is_homogeneous": dominant_share >= _HOMOGENEITY_THRESHOLD,
-        "style_distribution": dict(sorted(dist.items(), key=lambda kv: -kv[1])),
+        "style_distribution": dict(sorted(dist.items(), key=lambda kv: (-kv[1], kv[0]))),
         "n_funds": n_funds,
     }
 
