@@ -21,11 +21,20 @@ Output schema — fundamentals.json (canonical):
     "market_cap": {...} | null,
     "adv": {...} | null,
     "is_adr": false,
-    "overall_confidence": 0.78,
+    "overall_confidence": 0.78,      # display only (v0.34)
+    "quality_confidence": 0.9,       # v0.34 A5: mean confidence of the defined ROE points
+    "roe_years": 5,                  # v0.34 A5: number of defined ROE years
+    "roe_source": "edgar",           # v0.34 A5: "edgar" | "yfinance" | "edgar+yfinance"
     "source": "edgar" | "yfinance"
   },
   ...
 }
+
+v0.34 (A5, F9): `overall_confidence` averages every field that carries a value —
+market cap, ADV and EV/EBITDA included — so a stock's quality shrinkage moved
+with whether the yfinance fill-ins happened to succeed. `quality_confidence`
+averages only the defined ROE points, the inputs of the quality score itself;
+it is what the ranking shrinks by. `overall_confidence` stays for display.
 """
 
 from __future__ import annotations
@@ -68,8 +77,27 @@ def _roe_5y_avg(roe_5y: list[Optional[DataPoint]]) -> Optional[float]:
     return round(sum(vals) / len(vals), 4)
 
 
+def _defined_roe(rec: FundamentalsRecord) -> list[DataPoint]:
+    return [dp for dp in rec.roe_5y or [] if dp is not None and dp.value is not None]
+
+
+def quality_confidence(rec: FundamentalsRecord) -> Optional[float]:
+    """Mean confidence of the defined ROE points (A5); None without any."""
+    points = _defined_roe(rec)
+    if not points:
+        return None
+    return round(sum(dp.confidence for dp in points) / len(points), 4)
+
+
+def roe_source(rec: FundamentalsRecord) -> Optional[str]:
+    """Which providers the defined ROE points came from (A5)."""
+    families = {fam for dp in _defined_roe(rec) for fam in ("edgar", "yfinance")
+                if fam in dp.source}
+    return "+".join(sorted(families)) or None
+
+
 def _overall_confidence(rec: FundamentalsRecord) -> float:
-    """Mean confidence across all DataPoints that carry a value."""
+    """Mean confidence across all DataPoints that carry a value (display only)."""
     confs: list[float] = []
     for dp in rec.roe_5y or []:
         if dp is not None and dp.value is not None:
@@ -89,6 +117,9 @@ def record_to_dict(rec: FundamentalsRecord, source: str) -> dict:
     d = _serialize(rec)
     d["roe_5y_avg"] = _roe_5y_avg(rec.roe_5y)
     d["overall_confidence"] = _overall_confidence(rec)
+    d["quality_confidence"] = quality_confidence(rec)
+    d["roe_years"] = len(_defined_roe(rec))
+    d["roe_source"] = roe_source(rec)
     d["source"] = source
     return d
 

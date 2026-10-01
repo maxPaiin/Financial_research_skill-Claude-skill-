@@ -7,7 +7,10 @@ Ranking formula (canonical per §5.3, v0.3):
                   + 0.50 * crowding_signal_normalized  (0-100, percentile rank)
 
   where Q  = fundamental_quality_score (0-100 percentile rank)
-        c  = overall data_confidence for the stock (0-1)
+        c  = quality_confidence: mean confidence of the stock's defined ROE
+             points (v0.34 A5; was overall_confidence, which moved with
+             whether unrelated yfinance fill-ins — EV/EBITDA, market cap,
+             ADV — succeeded)
         Q_LOW = 10 (locked default; MUST stay > 0)
 
 v0.3 (A4) low-anchor confidence shrinkage — applied to the QUALITY half ONLY,
@@ -52,7 +55,7 @@ _TIER_BREAKS = [5, 10, 15]   # A: ≤5, B: ≤10, C: ≤15
 # Q_LOW MUST stay > 0 (=0 degenerates to the rejected multiplicative form).
 # Tunable *toward* 0 for more conservatism, never to 0.
 _Q_LOW = 10.0
-# Fallback confidence when a stock carries no overall_confidence. Treated as
+# Fallback confidence when a stock carries no quality_confidence. Treated as
 # the yfinance baseline (0.5) so missing-confidence stocks are shrunk, not
 # trusted at face value (premise 2: uncertainty is a quality defect).
 _DEFAULT_CONFIDENCE = 0.5
@@ -86,18 +89,8 @@ def tier(rank: int) -> str:
     return "C"
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--scores", required=True, help="scores_per_stock.json from compute_scores")
-    ap.add_argument("--crowding", required=True, help="crowding_signals.json")
-    ap.add_argument("--overlap", required=True, help="overlap.json")
-    ap.add_argument("--out", required=True, help="Output rankings.json")
-    args = ap.parse_args()
-
-    scores_data = json.loads(Path(args.scores).read_text(encoding="utf-8"))
-    crowding_data = json.loads(Path(args.crowding).read_text(encoding="utf-8"))
-    overlap_data = json.loads(Path(args.overlap).read_text(encoding="utf-8"))
-
+def rank(scores_data: dict, crowding_data: dict, overlap_data: dict) -> dict:
+    """rankings.json content. Confidence is read from scores_per_stock.json only."""
     stocks = scores_data.get("stocks", {})
     crowding_by_ticker = {r["ticker"]: r for r in crowding_data.get("signals", [])}
     overlap_by_ticker = {r["ticker"]: r for r in overlap_data.get("overlap", [])}
@@ -124,6 +117,9 @@ def main():
             "ev_ebitda": s.get("ev_ebitda"),
             "debt_equity": s.get("debt_equity"),
             "is_adr": s.get("is_adr", False),
+            "quality_confidence": s.get("quality_confidence"),
+            "roe_years": s.get("roe_years"),
+            "roe_source": s.get("roe_source"),
             "data_confidence": s.get("data_confidence"),
             "data_asof": s.get("data_asof"),
             # A1 (v0.3): liquidity/size carried through for reports + A2 label.
@@ -138,11 +134,7 @@ def main():
         })
 
     if not candidates:
-        print("WARNING: No candidates qualify for ranking (no passed stocks with both scores).")
-        out = {"ranked": [], "n_ranked": 0}
-        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.out).write_text(json.dumps(out, indent=2))
-        return
+        return {"ranked": [], "n_ranked": 0}
 
     # Percentile-rank the crowding signal within the passed universe so it
     # shares a scale with fundamental_quality_score (already a percentile).
@@ -152,12 +144,13 @@ def main():
             c["crowding_signal_raw"], raw_signals
         )
 
-    # A4: low-anchor confidence shrinkage on the quality half ONLY.
+    # A4: low-anchor confidence shrinkage on the quality half ONLY, by the
+    # confidence of the ROE points (v0.34 A5).
     # Q'' = c*Q + (1-c)*Q_LOW, NOT re-percentiled (absolute move preserved).
     for c in candidates:
         c["q_raw"] = c["fundamental_quality_score"]
         c["q_shrunk"] = low_anchor_shrink(
-            c["fundamental_quality_score"], c.get("data_confidence")
+            c["fundamental_quality_score"], c.get("quality_confidence")
         )
 
     # Composite score — quality half uses the shrunk Q'' (A4), consensus half
@@ -177,14 +170,32 @@ def main():
         c["rank"] = i
         c["tier"] = tier(i)
 
-    out = {
+    return {
         "n_passed_universe": len(candidates),
         "n_ranked": len(top15),
         "ranked": top15,
     }
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--scores", required=True, help="scores_per_stock.json from compute_scores")
+    ap.add_argument("--crowding", required=True, help="crowding_signals.json")
+    ap.add_argument("--overlap", required=True, help="overlap.json")
+    ap.add_argument("--out", required=True, help="Output rankings.json")
+    args = ap.parse_args()
+
+    out = rank(
+        json.loads(Path(args.scores).read_text(encoding="utf-8")),
+        json.loads(Path(args.crowding).read_text(encoding="utf-8")),
+        json.loads(Path(args.overlap).read_text(encoding="utf-8")),
+    )
+    if not out["ranked"]:
+        print("WARNING: No candidates qualify for ranking (no passed stocks with both scores).")
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(out, indent=2, ensure_ascii=False, default=str))
-    print(f"Top {len(top15)} ranked from {len(candidates)} passed candidates -> {args.out}")
+    print(f"Top {out['n_ranked']} ranked from {out.get('n_passed_universe', 0)} "
+          f"passed candidates -> {args.out}")
 
 
 if __name__ == "__main__":

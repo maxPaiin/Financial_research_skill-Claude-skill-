@@ -6,6 +6,11 @@ v0.32 additionally reproduces two input-review findings from
 qualifies: how many funds were excluded from the exit-liquidity aggregate for
 currency reasons (G1.4), and how many accepted funds have thin US exposure
 (G2). Both are disclosure only — no number in this file changes because of them.
+
+v0.34 (A5) adds "Passed the screen but could not be scored": stocks that cleared
+the screen but have no quality score (fewer than two defined ROE years), read
+from `scores_per_stock.json` via --scores. Before v0.34 such a stock simply
+never appeared in the ranking, with no word as to why (F7).
 """
 
 import json
@@ -13,11 +18,20 @@ import argparse
 from pathlib import Path
 
 
+def _unscored_after_screen(scores: dict | None) -> list[dict]:
+    if not isinstance(scores, dict):
+        return []
+    rows = [s for s in (scores.get("stocks") or {}).values()
+            if s.get("status") == "unscored_no_roe"]
+    return sorted(rows, key=lambda s: s.get("ticker") or "")
+
+
 def build_layer2_md(
     overlap: dict,
     screen_results: dict,
     fundamentals: dict,
     crowding: dict,
+    scores: dict | None = None,
 ) -> str:
     overlap_rows = overlap.get("overlap", [])
     results = screen_results.get("results", [])
@@ -36,6 +50,10 @@ def build_layer2_md(
     lines += ["## Universe state", ""]
     lines += [f"- Entered Layer 2: {n_total} tickers"]
     lines += [f"- Passed quality screen: {n_pass} ({n_pass/max(n_total,1):.0%})"]
+    unscored_after = _unscored_after_screen(scores)
+    if unscored_after:
+        lines += [f"  - of which passed but could not be scored (no ROE score): "
+                  f"{len(unscored_after)}"]
     lines += [f"- Failed quality screen: {n_fail}"]
     lines += [f"- Unscored (data unavailable): {n_unscored}"]
     lines += [""]
@@ -82,6 +100,19 @@ def build_layer2_md(
     for r in failed:
         lines += [f"| {r['ticker']} | {r.get('reason','')} | {r.get('detail','')} |"]
     lines += [""]
+
+    # v0.34 A5: passed the screen, but no quality score — disclosed, not dropped.
+    if unscored_after:
+        lines += ["### Passed the screen but could not be scored", ""]
+        lines += ["These stocks cleared every screen rule but have fewer than two "
+                  "defined ROE years, so they have no quality percentile and are not "
+                  "ranked. Nothing about them is estimated.", ""]
+        lines += ["| Ticker | Reason | Source |"]
+        lines += ["|---|---|---|"]
+        for u in unscored_after:
+            lines += [f"| {u['ticker']} | {u.get('unscored_reason') or 'no ROE score'} "
+                      f"| {u.get('roe_source') or u.get('source') or 'n/a'} |"]
+        lines += [""]
 
     # Unscored
     if unscored:
@@ -206,6 +237,8 @@ def main():
     ap.add_argument("--screen", required=True)
     ap.add_argument("--fundamentals", required=True)
     ap.add_argument("--crowding", required=True)
+    ap.add_argument("--scores", help="scores_per_stock.json (v0.34 A5): lists stocks that "
+                                     "passed the screen but could not be scored.")
     ap.add_argument("--out", default="/home/claude/work/layer2_screening.md")
     args = ap.parse_args()
 
@@ -213,8 +246,10 @@ def main():
     screen = json.loads(Path(args.screen).read_text(encoding="utf-8"))
     fundamentals = json.loads(Path(args.fundamentals).read_text(encoding="utf-8"))
     crowding = json.loads(Path(args.crowding).read_text(encoding="utf-8"))
+    scores = (json.loads(Path(args.scores).read_text(encoding="utf-8"))
+              if args.scores and Path(args.scores).exists() else None)
 
-    md = build_layer2_md(overlap, screen, fundamentals, crowding)
+    md = build_layer2_md(overlap, screen, fundamentals, crowding, scores)
 
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(md, encoding="utf-8")

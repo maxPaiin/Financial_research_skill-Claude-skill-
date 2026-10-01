@@ -5,6 +5,10 @@ A4: each field takes EDGAR's value when EDGAR has one, else yfinance's; a thin
 EDGAR ROE series (< 2 defined years) gives way to a real yfinance series. A
 fiscal year is reconciled only against the same fiscal year.
 
+A5: ranking shrinks quality by the confidence of the ROE points alone, so
+unrelated fill-ins (EV/EBITDA, market cap, ADV) cannot move Q''; a stock that
+passes the screen without a quality score is disclosed, not dropped.
+
     python -m unittest tests.test_v04_quality -v
 """
 
@@ -154,6 +158,138 @@ class TestFieldLevelFallback(unittest.TestCase):
 
     def test_both_failing_is_unscored(self):
         self.assertEqual(_registry(None, None).fetch("TSTX", ASOF), (None, "none"))
+
+
+# -----------------------------------------------------------------------------
+# A5 — quality confidence and the unscored disclosure
+# -----------------------------------------------------------------------------
+
+def _record(ticker: str, roe: list[float], conf: float, *, fill_ins: bool = False,
+            ttm: bool = False) -> FundamentalsRecord:
+    def dp(v, c=conf, src=f"edgar:10-K-2026"):
+        return DataPoint(value=v, confidence=c, source=src, asof=ASOF)
+    yf = lambda v: dp(v, 0.5, "yfinance:2026-09")
+    if ttm:
+        roe_pts = [DataPoint(value=roe[0], confidence=0.5, source="yfinance:ttm-2026-09",
+                             asof=ASOF)]
+        ni = [DataPoint(value=5.0, confidence=0.5, source="yfinance:ttm-2026-09", asof=ASOF)]
+    else:
+        roe_pts = [dp(v) for v in roe]
+        ni = [dp(5.0) for _ in roe]
+    return FundamentalsRecord(
+        ticker=ticker, asof=ASOF, roe_5y=roe_pts, net_income_5y=ni,
+        debt_equity=dp(0.5) if not ttm else yf(0.5),
+        ev_ebitda=yf(15.0) if (fill_ins or ttm) else None,
+        market_cap=yf(9e10) if fill_ins else None,
+        adv=yf(4e8) if fill_ins else None,
+        industry="technology",
+    )
+
+
+def _pipeline(records: list[FundamentalsRecord]) -> tuple[dict, dict, dict]:
+    """fundamentals.json -> screen_results.json -> scores_per_stock.json."""
+    from fetch_fundamentals import record_to_dict
+    from quality_screen import record_from_dict, screen
+    from compute_scores import build_scores
+    fundamentals = {r.ticker: record_to_dict(r, "edgar") for r in records}
+    results = []
+    for tkr, d in fundamentals.items():
+        sr = screen(tkr, record_from_dict(d))
+        results.append({"ticker": tkr, "passed": sr.passed, "reason": sr.reason,
+                        "detail": sr.detail, "source": d.get("source"),
+                        "industry": d.get("industry")})
+    screen_results = {"results": results, "unscored": []}
+    return fundamentals, screen_results, build_scores(fundamentals, screen_results)
+
+
+class TestQualityConfidence(unittest.TestCase):
+    def _universe(self, fill_ins: bool):
+        return [
+            _record("AAA", [0.10, 0.11, 0.12, 0.13, 0.14], 0.9),
+            _record("BBB", [0.20, 0.21, 0.22, 0.23, 0.24], 0.9),
+            _record("CCC", [0.30, 0.31, 0.32, 0.33, 0.34], 0.9),
+            _record("TGT", [0.25, 0.26, 0.27, 0.28, 0.29], 0.9, fill_ins=fill_ins),
+        ]
+
+    def test_fill_ins_do_not_move_q_double_prime(self):
+        import build_rankings
+        fund_a, _, scores_a = _pipeline(self._universe(fill_ins=False))
+        fund_b, _, scores_b = _pipeline(self._universe(fill_ins=True))
+        # The test is meaningful: the display confidence DOES move ...
+        self.assertNotEqual(fund_a["TGT"]["overall_confidence"],
+                            fund_b["TGT"]["overall_confidence"])
+        # ... while the confidence ranking uses does not.
+        a, b = scores_a["stocks"]["TGT"], scores_b["stocks"]["TGT"]
+        self.assertEqual(a["quality_confidence"], 0.9)
+        self.assertEqual(a["quality_confidence"], b["quality_confidence"])
+
+        def q2(scores):
+            crowding = {"signals": [{"ticker": t, "signal": 1.0}
+                                    for t in scores["stocks"]]}
+            ranked = build_rankings.rank(scores, crowding, {"overlap": []})["ranked"]
+            return {r["ticker"]: r["q_shrunk"] for r in ranked}
+
+        self.assertEqual(q2(scores_a)["TGT"], q2(scores_b)["TGT"])
+
+    def test_q_double_prime_uses_quality_confidence_with_the_old_default(self):
+        import build_rankings
+        self.assertEqual(build_rankings.low_anchor_shrink(80.0, None),
+                         build_rankings.low_anchor_shrink(80.0, 0.5))
+
+    def test_roe_provenance_is_carried_into_scores(self):
+        _, _, scores = _pipeline(self._universe(fill_ins=False))
+        tgt = scores["stocks"]["TGT"]
+        self.assertEqual(tgt["roe_years"], 5)
+        self.assertEqual(tgt["roe_source"], "edgar")
+        self.assertEqual(tgt["status"], "ok")
+
+
+class TestUnscoredDisclosure(unittest.TestCase):
+    def setUp(self):
+        records = [
+            _record("AAA", [0.10, 0.11, 0.12, 0.13, 0.14], 0.9),
+            _record("BBB", [0.20, 0.21, 0.22, 0.23, 0.24], 0.9),
+            _record("TTM", [0.21], 0.5, ttm=True),
+        ]
+        self.fundamentals, self.screen, self.scores = _pipeline(records)
+
+    def test_ttm_only_stock_passes_the_screen(self):
+        passed = {r["ticker"]: r["passed"] for r in self.screen["results"]}
+        self.assertTrue(passed["TTM"])
+
+    def test_it_is_marked_unscored_with_a_reason(self):
+        ttm = self.scores["stocks"]["TTM"]
+        self.assertIsNone(ttm["fundamental_quality_score"])
+        self.assertEqual(ttm["status"], "unscored_no_roe")
+        self.assertIn("1 defined ROE year", ttm["unscored_reason"])
+        self.assertIn("trailing", ttm["unscored_reason"])
+        self.assertEqual(self.scores["n_unscored_no_roe"], 1)
+
+    def test_it_is_never_ranked(self):
+        import build_rankings
+        crowding = {"signals": [{"ticker": t, "signal": 1.0} for t in ("AAA", "BBB", "TTM")]}
+        ranked = build_rankings.rank(self.scores, crowding, {"overlap": []})["ranked"]
+        self.assertNotIn("TTM", [r["ticker"] for r in ranked])
+
+    def test_it_appears_in_the_layer2_subsection(self):
+        from layer2_report import build_layer2_md
+        md = build_layer2_md({"n_tickers": 3, "overlap": []}, self.screen,
+                             self.fundamentals, {"signals": []}, self.scores)
+        section = md[md.index("### Passed the screen but could not be scored"):]
+        self.assertIn("| TTM |", section)
+        self.assertIn("1 defined ROE year", section)
+        self.assertIn("of which passed but could not be scored", md)
+
+    def test_layer2_without_scores_has_no_such_subsection(self):
+        from layer2_report import build_layer2_md
+        md = build_layer2_md({"n_tickers": 3, "overlap": []}, self.screen,
+                             self.fundamentals, {"signals": []})
+        self.assertNotIn("Passed the screen but could not be scored", md)
+
+    def test_layer3_methodology_points_to_it(self):
+        from layer3_report import build_layer3_md
+        md = build_layer3_md({"ranked": []}, 8, "framing", {})
+        self.assertIn("Passed the screen but could not be scored", md)
 
 
 if __name__ == "__main__":
