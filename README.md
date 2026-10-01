@@ -4,9 +4,50 @@
 > letters, digits and hyphens and may not contain the reserved words "claude" or
 > "anthropic" — so the v0.33 trigger `/claude_skill_Financial_research` could never resolve.
 
-# Financial Research Skill v0.33
+# Financial Research Skill v0.4
 
-> **v0.33 (current) — the Important Notice.** An outermost-layer addition: a per-stock
+> **⚠ The input rule changed in v0.4 — upload ONE `.zip`, not individual PDFs.**
+> Put the **7–11 fund sales documents** (the funds' factsheets, as PDF files) into **a single
+> `.zip` archive** and upload only that archive.
+> - **claude.ai:** upload the one `.zip`. Uploaded PDFs are usually placed straight into the
+>   conversation context, where every page costs tokens; an archive is not, so the skill's
+>   scripts read the PDFs instead and no PDF is ever read into the conversation.
+> - **Claude Code CLI:** pass the path of the `.zip` (a folder of PDFs also works there).
+> - The archive must hold **7–11 `.pdf` files**. Nested archives and entries that point
+>   outside the archive (`../`) are rejected; macOS `__MACOSX/` metadata is ignored.
+> - **中文說明：** 自 v0.4 起，請將 7–11 份基金銷售文件（基金月報／基金單張的 PDF 檔）**打包成一個
+>   `.zip` 壓縮檔**後上傳，不要再逐一上傳 PDF。
+
+> **v0.4 (current) — consensus signal v2 and a token-lean, portable runtime.** Key deltas
+> vs v0.33:
+> - **Scripted intake.** One `.zip` in; scripts extract each factsheet's fields and holdings
+>   table, and Claude reviews only the fields the scripts flag — rendering just that page as
+>   an image when needed.
+> - **Consensus that rises with agreement.** A fund votes for a stock only when it holds it
+>   above the common disclosure floor and, where its benchmark's top-10 is known, at or above
+>   the benchmark weight (capped at the 10% single-issuer limit). Votes are weighted by how
+>   independent the funds are, so share-class duplicates and same-mandate funds stop counting
+>   as separate opinions. Stocks rank by consensus band (majority / plural / single), then by
+>   confidence-shrunk quality — an ordering, not a weighted composite — and no LLM-inferred
+>   style label enters it. Names every fund holds only at benchmark weight are listed
+>   separately as benchmark-anchored core holdings.
+> - **Crowding becomes an exit-liquidity risk check in the demotion-only overlay**:
+>   days-to-liquidate ≥ 10 moves a stock down one display tier. Position size no longer lowers
+>   a rank.
+> - **US listing verified against SEC's exchange file** (Nasdaq / NYSE / CBOE). OTC lines and
+>   home-market lines are excluded and disclosed; ADRs stay in scope.
+> - **Corrections (tagged `v0.34`, part of v0.4):** IFRS / non-USD filers such as TSMC no
+>   longer drop out of the ranking unseen; yfinance ROE is a real multi-year series rather than
+>   one value repeated five times; negative equity never yields a sign-flipped ROE or D/E; ties
+>   break deterministically; the slash command is `/financial-research`; SEC's request-rate
+>   limit replaces a daily quota that never existed.
+> - **Runs on claude.ai and in Claude Code CLI**, with a phase runner that prints short
+>   summaries and a resume bundle (`work_bundle.zip`) so one run can span two usage windows.
+> - **Unchanged:** 7–11 funds, US-listed equities only, no FX conversion anywhere, the
+>   two-source macro gate, the Important Notice and its invariants, English-only output and
+>   the verbatim disclaimer.
+
+> **v0.33 — the Important Notice.** An outermost-layer addition: a per-stock
 > section covering the two factors the ranking framework structurally *cannot* measure —
 > the **expectations bar** and the **sentiment cycle** — each backed by evidence retrieved
 > in the existing macro subsystem, with references cited.
@@ -145,7 +186,7 @@ On May 26, 2026, a comprehensive test of this Claude skill was performed. The in
 
 A Claude skill that turns a small batch of fund prospectus PDFs into a ranked, defensibly-scoped US-equity watchlist.
 
-**Purpose.** Hong Kong private-banking distribution channels (Standard Chartered HK, Citi HK, and similar) sell a limited set of HKMA-approved global equity funds. This skill takes 7–11 of those fund factsheets, isolates their US-listed holdings, cross-checks fundamentals against SEC EDGAR, and produces a single ranked watchlist of the 15 highest-quality stocks the channel surfaces — with the selection bias and data limitations disclosed explicitly in every report.
+**Purpose.** Hong Kong private-banking distribution channels (Standard Chartered HK, Citi HK, and similar) sell a limited set of HKMA-approved global equity funds. This skill takes 7–11 of those fund factsheets (uploaded together as one `.zip`), isolates their US-listed holdings, cross-checks fundamentals against SEC EDGAR, and produces a single ranked watchlist of the 15 highest-quality stocks the channel surfaces — with the selection bias and data limitations disclosed explicitly in every report.
 
 **Non-goals.** It is not an alpha tool, not a backtest engine, not a portfolio constructor. Rankings reflect what HK distributors are pushing, not what the global market is doing. The output is meant as a research starting point, not a trade list.
 
@@ -162,7 +203,7 @@ The verbatim disclaimer in `assets/disclaimer.md` is embedded into every generat
 
 ## What this skill does
 
-Given **7–11 HKMA-approved global fund prospectus PDFs**, the skill runs a three-layer pipeline:
+Given **one `.zip` holding 7–11 HKMA-approved global fund factsheet PDFs**, the skill runs a three-layer pipeline:
 
 1. **Layer 1 — Extraction**: validates uploads, extracts US-listed equity holdings (including ADRs) from each fund via LLM-assisted PDF parsing, filters out non-US listings, deduplicates across funds.
 2. **Layer 2 — Overlap & Screen**: builds a cross-fund overlap matrix, fetches fundamentals from SEC EDGAR (true PIT) with yfinance fallback, applies a quality screen (PASS/FAIL), computes a fundamental quality percentile score, and computes the v0.3 consensus signal (style-diversity-weighted, with an exit-liquidity / days-to-liquidate crowding discount).
@@ -204,16 +245,17 @@ Every uploaded PDF is checked before any LLM parsing begins:
 
 | Check            | Requirement                                                                                                                                                                                                                                                     |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| File count       | **7–11** `.pdf` files in the upload directory (inclusive).                                                                                                                                                                                                     |
+| Upload format (v0.4) | **One `.zip` archive** holding the PDFs (claude.ai). On Claude Code CLI a folder path also works. Nested archives and entries that point outside the archive are rejected; macOS `__MACOSX/` metadata is ignored. |
+| File count       | **7–11** `.pdf` files inside the archive (or folder), inclusive.                                                                                                                                                                                               |
 | Parseable        | Each PDF must open with`pypdf` and contain at least one page.                                                                                                                                                                                                   |
 | Extractable text | The first 10 pages combined must yield non-empty text. Image-only scans fail here.                                                                                                                                                                              |
 | Holdings keyword | Each PDF must contain at least one of:`holdings`, `portfolio`, `top holdings`, `portfolio composition`. Bilingual HK factsheets often include Chinese equivalents as well — the validator accepts those too; see `validate_uploads.py` for the canonical list. |
 | Reporting date   | Each PDF must contain a recognizable date. Supported formats include`2025-03-31`, `31/03/2025`, `Q1 2025`, `FY 2024`, `H1 2025`, `March 31, 2025`, `31 March 2025`, `March 2025`.                                                                               |
 | Regional advisory (v0.32) | **Not a check.** If the fund's *title* names a region (Asia, Europe, Japan, China, EM, Latin America, India, ASEAN, or a bilingual equivalent), Stage 0 prints an advisory naming the file — that fund may hold fewer than 5 US-listed equities and be rejected at Stage 1c, after the expensive parse. It does **not** halt, reject, or change the exit code or file count. Matching is restricted to the title (percentage-bearing lines are ignored) so a global fund's country-breakdown table does not trip it. |
 
-### Level 2 — Per-fund content (Stage 1a, LLM extraction)
+### Level 2 — Per-fund content (Stage 1a, scripted extraction + review)
 
-Claude reads each PDF and writes one record per fund into `holdings.json`. For that to succeed, each PDF must surface the following:
+v0.4: scripts extract each factsheet's fields and holdings table into `holdings.json`, one record per fund; Claude reviews only the fields the scripts flag as missing or low-confidence and never reads a PDF into the conversation. For that to succeed, each PDF must surface the following:
 
 
 | Field                   | Required?   | Why it matters                                                                               |
@@ -276,7 +318,7 @@ themselves.
 | Trigger                                                                                                                                            |
 | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | User runs `/financial-research`.                                                                                                                   |
-| User uploads 7–11 fund prospectus PDFs and asks for analysis.                                                                                     |
+| User uploads one `.zip` of 7–11 fund factsheet PDFs and asks for analysis.                                                                       |
 | Phrases:*fund analysis, holdings breakdown, individual-stock scoring, multi-fund comparison, fund prospectus analysis*, "analyze these fund PDFs". |
 
 If fewer than 7 PDFs are supplied, validation stops the pipeline and asks the user to resubmit.
@@ -412,7 +454,7 @@ request header; it is not stored or transmitted anywhere else.
 
 ## Usage
 
-This is a Claude skill — upload 7–11 HKMA-approved fund factsheet PDFs and ask Claude for fund analysis. The skill runs the full pipeline and surfaces a downloadable PDF report.
+This is a Claude skill — put 7–11 HKMA-approved fund factsheet PDFs into **one `.zip`**, upload it, and run `/financial-research` (or ask Claude for fund analysis). The skill runs the full pipeline and surfaces a downloadable PDF report.
 
 For local development, individual scripts can be run directly:
 
