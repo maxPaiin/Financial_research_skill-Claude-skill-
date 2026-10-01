@@ -47,124 +47,9 @@
 >   two-source macro gate, the Important Notice and its invariants, English-only output and
 >   the verbatim disclaimer.
 
-> **v0.33 — the Important Notice.** An outermost-layer addition: a per-stock
-> section covering the two factors the ranking framework structurally *cannot* measure —
-> the **expectations bar** and the **sentiment cycle** — each backed by evidence retrieved
-> in the existing macro subsystem, with references cited.
-> - **It sits outside every layer, and changes nothing.** The composite ranks; the v0.31
->   overlay may demote a tier; **this notice touches neither.** It never enters `Q''`, `C`,
->   the composite, `rankings.json` or `coherence.json`. Delete the section and every rank,
->   tier and score is bit-for-bit identical — the same reversibility property v0.31 holds,
->   stated one layer further out.
-> - **Why outside, rather than a score.** Both factors are genuinely unquantifiable *in this
->   tool*: the backtest was removed in v0.2, so there is nothing to calibrate "is the market
->   overheated" against. Inventing a number would be exactly the false precision the honest-
->   framing policy exists to prevent — and a valuation tilt would systematically demote
->   semiconductor/AI names, precisely the names the HK channel surfaces most. A **sourced
->   notice is the only truthful form available.**
-> - **What the framework is blind to.** The quality axis is entirely backward-looking: a
->   company that has beaten for eight straight quarters with three years of growth already in
->   the price, and a company with identical ROE that nobody expects anything from, **score the
->   same on `Q`**. `EV/EBITDA` does not help — it is a screen gate only, never scored, and it
->   is an absolute threshold rather than a position within the stock's own history.
-> - **Sector-level evidence, per-stock attribution.** "The expectations bar for semiconductors
->   / AI infrastructure has been raised" is corroborable in Reuters/WSJ/BlackRock/Fed material.
->   "The market's expectations for AVGO specifically are too high" is not — single-stock
->   sentiment assertions are the **highest-fabrication-risk content in this skill**, fluent and
->   trivially invented. So the notice retrieves at group level and narrates by attributing the
->   stock to its group. **The C2 two-source hard gate is never relaxed here**; where evidence
->   is thin the entry says so explicitly, which is itself information.
-> - **Constructive, not defensive.** It is not a second disclaimer — the standing verbatim one
->   already covers that. Its argument is the point: **Tier A means highest-ranked on the
->   measurable dimensions, and precisely for that reason such a name is more likely already
->   fully priced. The two readings must be held together.** Stated once at the section head,
->   never per stock.
-> - **No new retrieval scope.** M1 was already bound to the post-screen universe's industries;
->   v0.33 adds a *facet* to that retrieval, not a scope. Per-stock retrieval is out of scope.
-> - **Unchanged:** the composite, `Q''`, `C`, rank order, tiers, the v0.31 overlay, the screen,
->   the input gates and the existing disclaimer.
-
-> **v0.32 — a defect patch, not a feature iteration.** It closes a currency-unit
-> hole that v0.3's days-to-liquidate metric silently opened, and adds two input-review
-> warnings the existing gates do not produce. It is kept as a separate version line so a
-> reader can tell which changes *added* behaviour and which *corrected* it.
-> - **`currency` is now a required Stage 1a field**, normalised to ISO-4217, and **`null`
->   when the factsheet does not state one — never defaulted to USD.** A bare `$` is
->   ambiguous (USD/HKD/SGD/AUD) and counts as unstated.
-> - **Only USD-reporting funds enter the days-to-liquidate aggregate.** ADV is always USD,
->   so an HKD-reported AUM overstated days-to-liquidate by ~7.8× — silently, with no error
->   and no flag. That matters disproportionately here: the target input is the **Hong Kong
->   distribution channel**, where HKD-denominated share classes are routine.
-> - **Excluded, never converted.** FX conversion would need a rate source, a rate-date policy
->   and a new provenance path — three new failure modes to repair a metric that already has
->   a well-defined NAV-only fallback. **No FX conversion exists anywhere in the codebase.**
->   An excluded fund still counts in full toward overlap, consensus and style diversity;
->   only its AUM is set aside, and tickers held solely by such funds show NAV-only crowding.
-> - **Thin-US-exposure warning.** A global fund with 5 US holdings at 21% of AUM passes the
->   viability gate, then votes in the consensus signal exactly as loudly as a 95%-US fund —
->   `n_funds_holding` counts funds, not exposure. Funds at 20–35% are flagged in Layer 1,
->   Layer 2 and Appendix 3 and are deliberately **not** down-weighted: re-weighting would
->   alter `C`, whose definition is locked. A defect patch corrects; it does not redefine a signal.
-> - **Stage 0 regional advisory.** A regional fund is otherwise rejected only at Stage 1c —
->   *after* the most expensive step in the pipeline. A title match now raises an advisory up
->   front. **Non-blocking by design**: a keyword is not evidence, Stage 1c remains the sole
->   authority on rejection, and a false advisory costs one sentence while a false rejection
->   would discard a valid input.
-> - **One consolidated input review** at the top of `layer1_extraction.md`, so the user sees a
->   single review of what they submitted rather than warnings scattered across sections.
-> - **Unchanged:** composite weights (50/50), `Q''`, `C`, rank order, viability thresholds
->   (≥5 holdings, ≥20% weight), Stage 0 blocking behaviour, and the entire v0.31 overlay. On
->   an all-USD input set the numeric output is bit-for-bit identical to v0.31.
-
-> **v0.31 — the coherence overlay.** A bolt-on that asks one question per ranked
-> stock: do the **macro read**, the **sector operating logic**, and the **sector-relative price
-> action** tell the same story? Where they contradict each other, the stock's picture is
-> incoherent — and in this tool incoherence is uncertainty, which is treated as a quality
-> defect. Key deltas vs v0.3:
-> - **Demotion-only, by construction.** The overlay can move a stock **down one display tier**
->   and never up. That is what makes it a bolt-on rather than a rewrite: switch it off and the
->   report is exactly the v0.3 output — reversibility as a hard property, not an aspiration.
-> - **Rank never moves; only the tier does.** A stock ranked #3 whose macro and sector logic
->   contradict each other stays at **rank #3**, shown in **Tier B**, with the contradiction named
->   on its card. Rank stays a purely quantitative product of the composite; the tier carries the
->   qualitative judgment, and the two stay separable — *"ranked #3, demoted to B because X
->   contradicts Y"* is auditable in a way that folding macro into the score never could be.
-> - **Not a third scoring axis.** `0.4·Q + 0.4·C + 0.2·Macro` was rejected: with no backtest
->   (removed in v0.2) the weight cannot be calibrated, and writing one down would be exactly the
->   false precision this tool's honesty framing exists to prevent. **Weights stay 50/50.**
-> - **The macro stage moved earlier (M1: after 3a → after 2d)** and is now scoped to the
->   **post-screen universe's** industries. Tiering depends on macro, so macro must exist before
->   ranking — and the top-15 is *produced by* ranking, so the old anchor was circular. Pure
->   sequencing move: M1's sources, directed-fetch policy and hard corroboration gate are unchanged.
-> - **Sector logic generalised to three universal questions** — *what constrains the inputs / how
->   much pricing power / what return on capital deployed* — replacing the physical supply-chain
->   triad, which produces confident nonsense on software, financial and consumer names.
-> - **ETF check is divergence detection, never confirmation.** Relative strength **vs SPY** over
->   **fixed 3M/6M/12M** windows. Price agreeing with a thesis is not treated as evidence for it:
->   momentum confirmation is pro-cyclical and consensus already is, so stacking them would point
->   both signals the wrong way together in a de-rating.
-> - **Missing data is never a verdict.** No sector-ETF mapping or a sparse macro read yields
->   **"insufficient data", tier unchanged** — it may not pass as coherence, nor be punished as a
->   contradiction, which would let data gaps drive tiering.
->
-> Full spec: [`references/coherence_overlay.md`](./references/coherence_overlay.md).
-
-> **v0.3** — risk-aware consensus, confidence-penalised quality, central-bank-anchored
-> macro appendix, conservative-by-design. Key deltas vs v0.2:
-> - **Confidence-shrunk quality (A4).** The quality half is low-anchor shrunk: `Q'' = c·Q + (1−c)·10`.
->   Low-confidence (yfinance) quality is pulled toward a low-but-non-zero anchor, so unverifiable
->   numbers cannot float a stock to mid-pack. Applied to quality only; not re-percentiled.
-> - **Exit-crowdedness (A2).** Crowding now folds in days-to-liquidate = (Σ fund_AUM × weight) / ADV,
->   labelled liquidity-inclusive or NAV-only.
-> - **Style-diversity-weighted consensus (A3).** Cross-style agreement outweighs same-mandate
->   funds; a run-level homogeneity warning fires when the input is single-style. Stratified
->   sampling is abandoned (sample too small; token budget).
-> - **SEC email gate (B1).** A user-supplied contact email is required and injected into the EDGAR
->   User-Agent (SEC returns 403 without it).
-> - **Macro & expectations appendices (C).** Central-bank-anchored, primary-first, with a hard
->   ≥2-primary-tier corroboration gate and per-sentence attribution.
-> - **Denser PDF + checkpoint copy (D).** Fewer forced page breaks; all checkpoint `.md` files are
->   copied to the user-visible outputs directory.
+> **Earlier versions** — v0.33 (the Important Notice), v0.32 (currency-integrity patch),
+> v0.31 (coherence overlay), v0.3 (risk-aware consensus) and the v1 → v0.33 design
+> decisions — are described in [`CHANGELOG.md`](./CHANGELOG.md).
 
 ### Test Report (May 26, 2026)
 
@@ -392,6 +277,7 @@ written — is the overlay's input, and anything placed there can move a display
 .
 ├── SKILL.md                          # Skill orchestration: pipeline, error tree, constraints
 ├── README.md
+├── CHANGELOG.md                      # Version history and the reasons for each change
 ├── requirements.txt
 ├── assets/
 │   └── disclaimer.md                 # English-only disclaimer (verbatim in every PDF)
@@ -405,10 +291,12 @@ written — is the overlay's input, and anything placed there can move a display
 │   ├── macro_appendix.md             # v0.3 macro/expectations appendices + source gate
 │   │                                 #   (v0.33: M1 gains the expectations/sentiment facet)
 │   ├── coherence_overlay.md          # v0.31 overlay: inputs, verdicts, invariants, deferrals
-│   └── important_notice.md           # v0.33 Part H: expectations bar + sentiment cycle,
-│                                     #   sourcing rules, guardrails, what the gate enforces
+│   ├── important_notice.md           # v0.33 Part H: expectations bar + sentiment cycle,
+│   │                                 #   sourcing rules, guardrails, what the gate enforces
+│   └── ticker_aliases.json           # v0.34: curated name -> ticker aliases (EN, zh-Hant, zh-Hans)
 ├── scripts/                          # Deterministic computation (no LLM calls)
 │   ├── validate_uploads.py           # + v0.32 G3 regional advisory (non-blocking)
+│   ├── resolve_tickers.py            # v0.34 Stage 1b-resolve: SEC exchange-file listing check
 │   ├── extract_holdings.py           # + v0.32 currency normalisation + thin-exposure flag
 │   ├── overlap_analysis.py
 │   ├── fetch_fundamentals.py         # Stage 2b: EDGAR + yfinance → fundamentals.json
@@ -425,16 +313,23 @@ written — is the overlay's input, and anything placed there can move a display
 │   ├── layer1_report.py              # v0.32 G4: consolidated input-review block
 │   ├── layer2_report.py              # + currency exclusions + thin-exposure count
 │   ├── layer3_report.py              # Tier grouping applies demotions; rank display unchanged
-│   └── providers/
-│       ├── __init__.py
-│       ├── base.py                   # DataPoint, FundamentalsRecord, ABCs
-│       ├── edgar_provider.py         # True-PIT EDGAR fetcher (10-K + 20-F)
-│       ├── yfinance_provider.py      # Degraded-PIT fallback (sole yfinance import)
-│       ├── registry.py               # Provider routing + multi-source merge
-│       ├── resolver.py               # Conflict resolution + data_provenance log
-│       └── industry_map.py           # Industry buckets + v0.31 industry → sector-ETF column
-└── tests/                            # Offline stdlib-unittest smoke suite
-    └── test_smoke.py
+│   ├── providers/
+│   │   ├── __init__.py
+│   │   ├── base.py                   # DataPoint, FundamentalsRecord, ABCs
+│   │   ├── edgar_provider.py         # True-PIT EDGAR: 10-K/20-F/40-F, us-gaap + ifrs-full,
+│   │   │                             #   SEC exchange-file ticker map (v0.34)
+│   │   ├── yfinance_provider.py      # Degraded-PIT fallback (sole yfinance import); replay mode
+│   │   ├── registry.py               # Provider routing + field-level fallback (v0.34)
+│   │   ├── resolver.py               # Conflict resolution + data_provenance log
+│   │   ├── names.py                  # v0.34: company-name normalisation for name-only rows
+│   │   └── industry_map.py           # Industry buckets + v0.31 industry → sector-ETF column
+│   └── dev/                          # Maintainer tools — never imported by the pipeline
+│       ├── edgar_smoke.py            # Which SEC endpoints answer (needs a contact email)
+│       └── record_fixtures.py        # Records trimmed SEC fixtures + a concept census
+└── tests/                            # Offline stdlib-unittest suite (no network)
+    ├── test_smoke.py                 # v0.2–v0.33 regression tests
+    ├── test_v04_*.py                 # one module per v0.4 work-package group
+    └── fixtures/                     # recorded SEC data (trimmed) + synthetic yfinance replays
 ```
 
 ---
@@ -463,6 +358,11 @@ For local development, individual scripts can be run directly:
 # reproduce the v0.32 regional advisories inside the consolidated input review.
 python scripts/validate_uploads.py /path/to/uploads --email you@example.com \
   --out /home/claude/work/stage0_validation.json
+
+# Stage 1b-resolve (v0.34) — SEC listing check: a row is kept only if SEC's
+# exchange file lists it on Nasdaq, NYSE or CBOE (--sec-file replays a saved copy)
+python scripts/resolve_tickers.py --holdings /home/claude/work/holdings.json \
+  --email you@example.com
 
 # Stage 1b-d — filter, normalise currency, flag thin US exposure, dedupe
 # (after Claude writes holdings.json at Stage 1a)
@@ -596,46 +496,10 @@ itself is what gets shipped.
 
 ---
 
-## Key design decisions (v1 → v0.2 → v0.3 → v0.31 → v0.32 → v0.33)
+## Version history
 
-
-| Decision        | v1                                                   | v0.2                                                 | v0.3                                                              | v0.31                                                        |
-| --------------- | ---------------------------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------ |
-| Scope           | Multi-market, claimed alpha                          | US equities, honestly scoped to HK channel           | unchanged                                                         | unchanged                                                    |
-| Strategies      | 3 parallel (Growth / Conservative / Risk-avoidance)  | 1 ranking, 3 display tiers                           | unchanged                                                         | 1 ranking; tiers now carry judgment, not just position       |
-| Backtest        | Monthly-rebalanced with CAGR/Sharpe/MDD              | Removed (misleading given inputs)                    | unchanged (still none)                                            | still none — which is *why* the overlay carries no weight    |
-| Output language | Bilingual (English + Chinese)                        | English-only                                         | unchanged                                                         | unchanged                                                    |
-| Data source     | yfinance + FRED only                                 | EDGAR (conf 0.9) + yfinance (conf 0.5)               | + central-bank directed-fetch (Fed/ECB/BoJ) for macro appendix    | + yfinance quotes for sector-ETF RS (no new macro sources)   |
-| Quality metric  | Continuous score (industry + growth + quality_value) | Binary screen + single ROE percentile rank           | + low-anchor confidence shrinkage `Q'' = c·Q + (1−c)·10`          | unchanged                                                    |
-| Consensus       | Raw count                                            | Consensus-with-crowding (NAV-share discount)         | Style-diversity-weighted + exit-crowdedness (days-to-liquidate)   | unchanged                                                    |
-| Composite       | n/a                                                  | Fixed 50/50                                          | Fixed 50/50                                                       | Fixed 50/50 — overlay is **not** a third axis                |
-| Tiers           | n/a                                                  | Display slice of rank                                | Display slice of rank                                             | Rank slice, then **demotion-only** coherence adjustment      |
-| Macro position  | n/a                                                  | n/a                                                  | M1 after 3a, scoped to top-15 industries                          | M1 after **2d**, scoped to the **post-screen universe**      |
-| Price signal    | Momentum-ish                                         | none                                                 | none                                                              | Divergence detector only (RS vs SPY, fixed windows)          |
-| EDGAR UA        | n/a                                                  | Hardcoded, no email (would 403)                      | User-supplied contact email, gated at Stage 0 (B1)               | unchanged                                                    |
-
-**v0.32 deltas (defect patch — nothing above changes):**
-
-| Decision | v0.31 | v0.32 |
-| --- | --- | --- |
-| `currency` field | in the schema, never validated or read | **required at Stage 1a**, ISO-4217, `null` when unstated, never defaulted |
-| Non-USD fund AUM | silently summed into a USD-named aggregate | **excluded** from the aggregate; ticker falls back to NAV-only |
-| FX conversion | n/a | **none, deliberately** — exclude and label, never convert |
-| Marginal US exposure (20–35%) | invisible; votes like a 95%-US fund | flagged in Layer 1 / 2 / Appendix 3; **vote unchanged** |
-| Regional fund feedback | only at Stage 1c, after the expensive parse | **Stage 0 advisory**, non-blocking; Stage 1c still decides |
-| Input warnings | scattered across sections | **one consolidated input-review block** |
-
-**v0.33 deltas (outermost-layer addition — nothing above changes):**
-
-| Decision | v0.32 | v0.33 |
-| --- | --- | --- |
-| Expectations bar / sentiment cycle | invisible to the framework, and unmentioned | stated as a **measurement boundary**, with sector-level evidence and references |
-| Where it sits | n/a | **outside every layer** — no score, no rank, no tier; removable with bit-for-bit identical numbers |
-| Quantify it? | n/a | **no.** No backtest exists to calibrate "overheated"; a number would be false precision, and a valuation tilt would systematically demote semiconductor/AI names |
-| Evidence granularity | n/a | corroborated at **sector/theme level**, narrated by attributing the stock to its group — never a stock-level sentiment claim |
-| C2 hard gate | ≥2 primary-tier sources | **unchanged, and explicitly not relaxed** for the notice; thin evidence produces an explicit not-found statement |
-| Retrieval scope | M1 bound to post-screen industries | **same scope, one more facet** — no per-stock retrieval |
-| Register | n/a | **constructive, not a second disclaimer**; the "Tier A ≠ best entry" argument stated once at the section head |
+What changed in each version, and why — including the design-decision tables from
+v1 to v0.33 — is in [`CHANGELOG.md`](./CHANGELOG.md).
 
 ---
 
@@ -660,8 +524,8 @@ itself is what gets shipped.
 
 ### Appendix: Other known risks or bugs
 
-1. **Ticker Symbol Compatibility Risk**: The system normalizes tickers to the `BRK.B` format (using dots). However, `yfinance` typically requires the `BRK-B` format (using hyphens) for specific share classes. Without proper transformation in `yfinance_provider.py`, the fallback mechanism may fail for these securities.
-2. **ADR Data Coverage Risk**: `EDGARProvider` primarily retrieves data using `us-gaap` tags. Many foreign companies listed in the US (ADRs) report using `ifrs-full` (International Financial Reporting Standards) tags. This may cause EDGAR to fail in extracting fundamentals for ADRs, leading to total reliance on lower-confidence `yfinance` data.
+1. **Ticker symbol compatibility (fixed in v0.34)**: the pipeline writes share classes as `BRK.B`; SEC and Yahoo write `BRK-B`. Both providers now map between the two forms, and lookups succeed whichever form a factsheet used.
+2. **ADR / IFRS data coverage (fixed in v0.34)**: EDGAR used to read `us-gaap` facts in USD only, so a foreign issuer reporting under IFRS or in another currency (TSMC: IFRS, TWD) came back empty and silently dropped out of the ranking. EDGAR now reads `ifrs-full` as well, in the issuer's reporting currency, building ROE and D/E only from same-unit pairs; when it still has nothing usable, yfinance fills in field by field, and a stock that passes the screen but cannot be scored is listed in Layer 2 with its reason.
 3. **SEC request rate (corrected in v0.34)**: SEC publishes a fair-access *rate* limit — at most 10 requests per second — not a daily quota. v0.33 enforced a 600-request "daily budget" that does not exist, so a large universe silently lost EDGAR coverage after 600 calls. The provider keeps the 100 ms throttle and the 1 s → 2 s → 4 s backoff on HTTP 429; a 10,000-request runaway guard, logged as a WARNING, replaces the budget. Each uncached ticker costs about two requests (companyfacts + submissions), plus one ticker-map download per week.
 4. **Sector-ETF proxy error (v0.31)**: an eleven-bucket industry map is coarser than a real sector classification, so a stock can be measured against an ETF that is only approximately its sector — a diversified conglomerate or an unusual ADR most of all. The mapping is deliberately conservative (`other` is left unmapped, producing "insufficient data" instead of a wrong proxy), but a *plausible-but-imprecise* bucket will still be used.
 5. **Uncalibrated overlay bands (v0.31)**: the thresholds separating "outperforming / inline / lagging" (±5pp) and "sharp divergence" (±20pp) are round numbers, not fitted parameters — there is no backtest in this tool to fit them against. They exist to separate decisive moves from noise. This is why the overlay is capped at a single tier and can only demote: a wrong band costs one display tier on one stock, never a re-ordering.
@@ -673,3 +537,5 @@ itself is what gets shipped.
 11. **A not-found entry is not an all-clear (v0.33)**: where a group has thin sentiment coverage, the entry states that no corroborating evidence was found. That means *no evidence either way* — not that the group's expectations bar is normal. Coverage is uneven by construction, so the well-documented groups (semis / AI infrastructure) get substantive entries while quieter sectors get a blank, and the asymmetry is a property of the source material, not a reading of the stocks.
 12. **The notice gate checks strings, not truth (v0.33)**: `check_checkpoints.py` catches banned verdict vocabulary, ticker-bound sentiment, unsourced entries and single-source citations. It cannot judge whether two named sources are genuinely independent, or whether the cited material actually supports the sentence written next to it. A fluent, correctly-formatted, correctly-cited but *wrong* paragraph passes the gate — that half of the review is Claude's, and it is the half that matters most here.
 13. **Square brackets are reserved inside the notice (v0.33)**: the two-source check reads every `[...]` in `important_notice_checkpoint.md` as a citation, so a markdown link or a bracketed aside is flagged as a single-source citation. The convention is documented in `references/important_notice.md`; the trade is a rigid notation in exchange for a mechanical C2 check on the section that most needs one.
+14. **Name-only rows for foreign issuers are excluded and disclosed (v0.34)**: a factsheet that lists a holding by name alone — "台積電", "Taiwan Semiconductor Manufacturing" — does not say whether the fund holds the US ADR or the home-market share. For a foreign private issuer (20-F / 40-F filer) the row is kept only with evidence: an ADR marker in the name or a US ISIN. Without it the row is excluded as `ambiguous_listing` and listed in Layer 1's input review. The error is one-sided by design — a possible false exclusion, never a false inclusion — and an issuer whose filer type cannot be determined is treated the same way.
+15. **A non-US ISIN alone never excludes a US-listed share (v0.34)**: the listing check reads the ticker first. Accenture, Medtronic and Chubb trade on the NYSE with Irish or Swiss ISINs; they are kept. Only on a name-only row of a foreign private issuer does a non-US ISIN decide (`non_us_listing`: the fund holds the home-market share).

@@ -3,10 +3,14 @@ name: financial-research
 description: Ranks US-listed equities, including ADRs, surfaced by 7-11 Hong Kong-distributed equity fund factsheets (PDF or one .zip). Extracts holdings with scripts, keeps only securities listed on Nasdaq, NYSE or CBOE per the SEC exchange file, screens fundamentals from SEC EDGAR with a yfinance fallback, and ranks by institutional consensus - votes from positions at or above benchmark weight, weighted by how independent the funds are - with confidence-shrunk ROE ordering names inside each consensus band. Adds a demotion-only coherence and exit-liquidity overlay, central-bank-anchored macro appendices under a two-source rule, and an English PDF watchlist of up to 15 names. Use when the user runs /financial-research or supplies several fund factsheets and asks for fund holdings analysis, cross-fund consensus, stock scoring or a watchlist. Triggers include fund analysis, holdings breakdown, analyze these fund PDFs, 股票型基金分析, 基金研究, 機構共識.
 ---
 
-# Financial Research Skill v0.33
+# Financial Research Skill v0.34
 
 > **Every report must embed the disclaimer from `assets/disclaimer.md` verbatim (front and back).**
-> v0.3 = risk-aware consensus, confidence-penalised quality, central-bank-anchored macro appendix, conservative-by-design. **v0.31 adds the coherence overlay** (macro factors + sector logic + ETF divergence) — **demotion-only**, capped at one tier, never touches rank or the composite. **v0.32 is a defect patch**: `currency` becomes a required Stage 1a field and only USD-reporting funds enter the days-to-liquidate aggregate (excluded, never FX-converted), plus two input-review warnings (thin US exposure, Stage 0 regional advisory). **v0.33 adds the Important Notice** — a per-stock section on the two factors the framework structurally cannot measure (the expectations bar and the sentiment cycle), evidenced at sector level and attributed per stock. It sits **outside every scoring layer**: no score, no rank, no tier. Safety-first: when in doubt, say less and rank lower.
+> v0.34 is a corrections line inside v0.4: EDGAR reads IFRS and non-USD filers, the US listing
+> is checked against SEC's exchange file, ROE comes from real annual series, negative equity
+> never yields a ratio, and ranking ties break by ticker. The ranking itself is unchanged.
+> Version history and the reasons behind each version: `CHANGELOG.md`. Safety-first: when in
+> doubt, say less and rank lower.
 
 ---
 
@@ -16,7 +20,8 @@ description: Ranks US-listed equities, including ADRs, surfaced by 7-11 Hong Kon
 |---|---|---|---|
 | 0 | `validate_uploads.py <dir> --email <e> --out stage0_validation.json` | upload dir + email | stdout (errors) + `stage0_validation.json`; **regional advisories on stderr (G3, non-blocking)** |
 | 1a | Claude (LLM) | each PDF (pdfplumber tables + LLM normalise) | `holdings.json` (one record per fund, incl. inferred `style` **and required `currency`**) |
-| 1b–d | `extract_holdings.py --dedupe` | `holdings.json` | `holdings.json` (enriched; `style` preserved; **`currency` normalised to ISO-4217/null, `thin_us_exposure` flagged**) |
+| **1b-resolve** | `resolve_tickers.py --holdings holdings.json --email <e>` | `holdings.json`, SEC exchange file | `holdings.json` (each equity row + `ticker_resolved`, `listing_exchange`, `resolution`); rows needing review printed |
+| 1b–d | `extract_holdings.py --dedupe` | `holdings.json` | `holdings.json` (row kept **iff** `resolution.status == kept`; unresolved rows fall back to the labelled legacy format check; `currency` normalised to ISO-4217/null, `thin_us_exposure` flagged) |
 | 1e | `layer1_report.py --stage0` | `holdings.json`, `stage0_validation.json` | `layer1_extraction.md` (**opens with the consolidated input review, G4**) |
 | 2a | `overlap_analysis.py` | `holdings.json` | `overlap.json` |
 | 2b | `fetch_fundamentals.py --email <e>` | `holdings.json` | `fundamentals.json`, `unscored_tickers.json`, `data_provenance.json` |
@@ -26,7 +31,7 @@ description: Ranks US-listed equities, including ADRs, surfaced by 7-11 Hong Kon
 | **M1b** | Claude | `screen_results.json` industries + Layer-2 fundamentals | `sector_logic.json` (E2.2 three universal questions per industry) |
 | 2e | `compute_scores.py` | `fundamentals.json`, `screen_results.json` | `scores_per_stock.json` (carries `adv`/`market_cap`) |
 | 2f | `crowding_signal.py --holdings --fundamentals` | `overlap.json`, `holdings.json`, `fundamentals.json` | `crowding_signals.json` (days-to-liquidate **from USD-reporting funds only**, style-diversity, homogeneity, `input_review`) |
-| 2g | `layer2_report.py` | overlap, screen, fundamentals, crowding | `layer2_screening.md` (liquidity labels + **currency exclusions** + homogeneity + **thin-exposure count**) |
+| 2g | `layer2_report.py --scores scores_per_stock.json` | overlap, screen, fundamentals, crowding, scores | `layer2_screening.md` (liquidity labels + **currency exclusions** + homogeneity + **thin-exposure count** + **passed-but-unscored list**) |
 | 3a | `build_rankings.py` | `scores_per_stock.json`, `crowding_signals.json`, `overlap.json` | `rankings.json` (low-anchor Q'') — **sole author of composite + rank** |
 | **3a-bis-i** | `etf_relative_strength.py` | `rankings.json` (read-only), yfinance quotes | `etf_relative_strength.json` (RS vs SPY, fixed 3M/6M/12M) |
 | **3a-bis** | `coherence_audit.py` | `rankings.json` (read-only), `macro_factors.json`, `sector_logic.json`, `etf_relative_strength.json` | `coherence.json` (side-car; **`rankings.json` untouched**) |
@@ -50,6 +55,13 @@ description: Ranks US-listed equities, including ADRs, surfaced by 7-11 Hong Kon
 > position (placed ONLY in the SEC request header; not stored or sent anywhere
 > else). Pass it via `--email` to `validate_uploads.py` and `fetch_fundamentals.py`
 > (or set `EDGAR_CONTACT_EMAIL`). No valid email → **halt**.
+
+> **Stage 1b-resolve (v0.34):** a holding is in scope only if SEC's exchange file lists it on
+> Nasdaq, NYSE or CBOE. The ticker is checked before the ISIN (ACN, MDT, CB carry IE/CH ISINs and
+> stay). A name-only row of a foreign private issuer needs an ADR marker or a US ISIN, else it is
+> `ambiguous_listing`. For each row the script prints as needing review, supply a ticker or ISIN
+> **only if it is printed on that factsheet page**; never infer one. Aliases you would add go to
+> `new_aliases.json` in the work dir for the maintainer — they are not used in the run.
 
 > **Stage 1a required fields (v0.32 G1.1):** `fund_name`, `asof`, the holdings
 > table **and `currency`** — the fund's reporting currency for `total_aum`,
@@ -117,8 +129,11 @@ description: Ranks US-listed equities, including ADRs, surfaced by 7-11 Hong Kon
 | Stage 1a: pdfplumber finds no table grid | Fall back to flat-text + LLM; if still < 5 US holdings, reject that fund |
 | Stage 1a: fund has < 5 US holdings or < 20% AUM weight | Reject that fund; continue if >= 7 remain; else halt |
 | Post-rejection fund count < 7 | Halt; tell user which PDFs failed and why |
+| Stage 1b-resolve: SEC exchange file unavailable | Stop the listing check (the script exits 1); retry, or pass `--sec-file` with a saved copy. Never fall back to guessing from ticker formats |
+| Stage 1b-resolve: rows unresolved / ambiguous | Review only the printed rows; fix a row only from what its factsheet page prints, else leave it excluded (Layer 1 discloses it) |
 | EDGAR returns empty for ticker | Fall through to yfinance |
 | yfinance also returns empty | Mark ticker as unscored; disclose in `layer2_screening.md` |
+| Stock passes the screen with < 2 defined ROE years | `unscored_no_roe` in `scores_per_stock.json`; listed under "Passed the screen but could not be scored"; never ranked |
 | No AUM / no ADV for a crowded name | Crowding falls back to NAV-only; label it (no crash) |
 | Macro claim has only 1 primary-tier source | Do NOT write it (C2 hard gate) |
 | No sector-ETF mapping / sparse macro read | Overlay records **"insufficient data"**, tier unchanged — never treat as coherent, never demote for it |
@@ -160,7 +175,7 @@ The closing chat message points the user to `/mnt/user-data/outputs` for the PDF
 
 ## Key constraints (non-negotiable)
 
-- US-listed equities only. ADRs in scope. Non-US primary listings dropped at Stage 1b.
+- US exchange-listed equities only: SEC's exchange file must list the ticker on Nasdaq, NYSE or CBOE (v0.34). ADRs in scope; OTC lines and home-market lines are excluded and disclosed; a non-US ISIN alone never excludes a US-listed share.
 - English-only in all output files. Chat may be bilingual.
 - One ranking (top 15), three display tiers. No parallel strategies. No backtest.
 - **The coherence overlay may only DEMOTE**, by at most **one tier per stock**, no matter how many pairs contradict. It never promotes, never changes rank, never touches the composite, `Q''` or `C`. `rankings.json` is **read-only** to it; its only output is `coherence.json`. Removing Stage 3a-bis must leave a runnable pipeline producing the v0.3 report.
@@ -169,7 +184,7 @@ The closing chat message points the user to `/mnt/user-data/outputs` for the PDF
 - Sector logic uses the **three universal questions** (inputs / pricing power / return on capital), instantiated per industry — never blank-filled physical-supply-chain fields on software, financial or consumer names.
 - **No industry-policy or company-level supply-chain claims anywhere in the output** (deferred; company supplier relationships are not in EDGAR's structured data and are the highest fabrication risk in the proposal).
 - Do not fabricate data. If EDGAR and yfinance both fail, mark unscored.
-- **Composite weights fixed at 50/50.** Quality half is low-anchor shrunk: `Q'' = c·Q + (1−c)·Q_low`, `Q_low = 10` and **must stay > 0**; applied to Q only, never re-percentiled.
+- **Composite weights fixed at 50/50.** Quality half is low-anchor shrunk: `Q'' = c·Q + (1−c)·Q_low`, `Q_low = 10` and **must stay > 0**; applied to Q only, never re-percentiled. `c` is `quality_confidence`, the confidence of the ROE points alone (v0.34).
 - Crowding = exit-crowdedness (days-to-liquidate, simultaneous-exit assumption); each figure labelled liquidity-inclusive / NAV-only.
 - **`currency` is required at Stage 1a and never defaulted.** Only `currency == "USD"` funds contribute AUM to `aggregate_position_usd`; non-USD and `null` are **excluded, never converted**. **No FX conversion may exist anywhere in the codebase** — the units are either identical or the input is set aside and labelled. There is no third path.
 - **Thin US exposure (20–35% of AUM) is a warning, never a re-weighting.** Such funds are accepted in full and their consensus contribution is unchanged — `C`'s definition is locked, and exposure-weighting it belongs to a signal iteration, not a defect patch. Viability thresholds (≥5 holdings, ≥20% weight) are unchanged.

@@ -1,0 +1,272 @@
+# Changelog
+
+Notable changes to the financial-research skill, newest first. [`README.md`](./README.md)
+describes the current version; this file keeps the history and the reasons.
+
+Corrections and additions ship as separate version lines, so a reader can tell which changes
+*corrected* behaviour and which *added* it. v0.32 was a correction line, and so is v0.34,
+released inside v0.4 (decision DEC-6 of the v0.4 update specification).
+
+---
+
+## v0.4 — consensus signal v2 and a token-lean, portable runtime (in progress)
+
+Built from the v0.4 update specification (findings F1–F20). The corrections land first as
+v0.34, below. Entries for the consensus signal (Phase B), the token and runtime architecture
+(Phase C) and the consensus flow (Phase D) are added here as each work package lands.
+
+- **The input rule changed:** the 7–11 fund factsheets (the fund sales documents) are
+  uploaded as **one `.zip`**, not as individual PDFs.
+
+---
+
+## v0.34 — corrections (2026-10-01)
+
+Corrections only: no signal is redefined and no weight changes. What changes is which stocks
+reach the ranking, and on which data.
+
+### Fixed
+
+- **EDGAR was never used (F14).** The ticker → CIK map was read from
+  `data.sec.gov/files/company_tickers.json`, which answers HTTP 404 (checked 2026-10-01 with
+  `scripts/dev/edgar_smoke.py`), so every ticker silently fell back to yfinance. The map now
+  comes from `www.sec.gov/files/company_tickers_exchange.json` (ticker, CIK, issuer name,
+  listing exchange), refreshed when older than 7 days.
+- **IFRS and non-USD filers no longer vanish from the ranking (F7).** EDGAR reads `us-gaap`,
+  then `ifrs-full`, in the issuer's reporting currency; a filing with no usable facts falls
+  back to yfinance field by field; a stock that passes the screen but cannot be scored is
+  listed in Layer 2 ("Passed the screen but could not be scored") with its reason instead of
+  disappearing unseen. Recorded check: TSMC (20-F, IFRS, TWD) now yields five ROE years.
+- **Ratios never mix units.** ROE and D/E are built only from a numerator and denominator
+  in the same unit for the same period end. Ratios are dimensionless, so no conversion is
+  needed — the no-FX rule holds.
+- **yfinance ROE is a real multi-year series (F8)** from the annual statements, not the
+  trailing value repeated five times; trailing-only data is one point.
+- **Negative equity (F10)** leaves that year's ROE undefined (`roe_undefined_years`) and D/E
+  undefined whenever the latest equity is ≤ 0. A loss over negative equity no longer reads as
+  a positive ROE, and a negative D/E can no longer slip under the 5.0 ceiling.
+- **Quality confidence (F9).** Q'' is shrunk by the confidence of the ROE points alone
+  (`quality_confidence`). `overall_confidence` also averaged market cap, ADV and EV/EBITDA,
+  so Q'' moved with whether unrelated yfinance fill-ins succeeded.
+- **US listing (F11).** Decided by SEC's exchange file — kept only when listed on Nasdaq,
+  NYSE or CBOE — instead of by the format of the ticker string. OTC lines and home-market
+  lines are excluded and every dropped row is disclosed in Layer 1 with its reason. ADRs stay
+  in scope, and a non-US ISIN alone never excludes a US-listed share (Accenture, Medtronic
+  and Chubb carry IE/CH ISINs). Name-only rows are matched through curated aliases
+  (`references/ticker_aliases.json`, English and Chinese names) and SEC issuer names; for a
+  foreign private issuer the row needs an ADR marker or a US ISIN to be kept.
+- **Share classes.** `BRK.B` (internal) and `BRK-B` (SEC, Yahoo) resolve to the same security
+  on both providers.
+- **Industry map (F12).** yfinance's "Consumer Cyclical" and "Consumer Defensive" map to
+  consumer discretionary / staples; AMZN and TSLA had no sector ETF and no macro scope.
+- **SEC request budget (F13).** SEC publishes a rate limit (≤ 10 requests per second), not a
+  daily quota. The 600-request "daily budget" is replaced by a 10,000-request runaway guard;
+  the 100 ms throttle and 429 backoff stay.
+- **Skill name (F15).** The slash command is the skill's name, `/financial-research`; names
+  may not contain "claude", so `/claude_skill_Financial_research` could never resolve. The
+  description is 937 characters (limit 1,024).
+- **Determinism (F16).** Every rank-deciding sort ends with the ticker; shuffled inputs give a
+  byte-identical `rankings.json`.
+- **Repository hygiene (F20).** New test modules and JSON fixtures were silently git-ignored;
+  they are now committed. Claude Code CLI runtime directories are ignored.
+
+### Deviations from the specification, and the evidence for each
+
+The provider's choices were checked against real filings: `scripts/dev/record_fixtures.py`
+recorded trimmed SEC fixtures and a concept census over 19 filers (US, IFRS, 20-F and 40-F).
+
+- **Unit choice: the reporting currency, not "USD whenever present".** TSMC tags a USD
+  convenience translation of each 20-F year (9 facts against 25 in TWD), and SAP carries one
+  USD fact against 41 in EUR — "USD whenever present" left SAP one ROE year. The shared unit
+  with the most facts wins; USD breaks ties.
+- **Current data first.** Toyota and Sony moved from US GAAP to IFRS in 2020–21, and
+  "first concept present wins" read Toyota's 2012–13 us-gaap USD series. A concept or
+  taxonomy whose data ended more than two years before the request never beats a current one.
+- **Dropped candidate.** `ifrs-full:NoncurrentPortionOfNoncurrentBorrowings` occurred in none
+  of the 19 filers and is not a candidate; every other candidate occurs in 4–10 of them.
+- **TCEHY is not in SEC's file** (Tencent is not an SEC registrant), so a bare `TCEHY` resolves
+  as unresolved rather than OTC. Both are excluded; the OTC test cases use `TCEHY.PK` and
+  Advantest's ADR (`ATEYY`), which SEC lists on OTC.
+- **A fiscal year is reconciled only against the same fiscal year.** SEC's companyfacts lag
+  some filings (TSMC's FY2025 20-F, filed 2026-04-16, was not yet in it on 2026-10-01), and
+  comparing EDGAR's FY2024 with yfinance's FY2025 would log a conflict that does not exist.
+- **The SKILL.md length check is a plain test**, not an expected failure: the body was already
+  under 500 lines, and an expected failure that passes fails the suite.
+
+---
+
+## v0.33 — the Important Notice (2026-08-26)
+
+**v0.33 — the Important Notice.** An outermost-layer addition: a per-stock
+section covering the two factors the ranking framework structurally *cannot* measure —
+the **expectations bar** and the **sentiment cycle** — each backed by evidence retrieved
+in the existing macro subsystem, with references cited.
+- **It sits outside every layer, and changes nothing.** The composite ranks; the v0.31
+  overlay may demote a tier; **this notice touches neither.** It never enters `Q''`, `C`,
+  the composite, `rankings.json` or `coherence.json`. Delete the section and every rank,
+  tier and score is bit-for-bit identical — the same reversibility property v0.31 holds,
+  stated one layer further out.
+- **Why outside, rather than a score.** Both factors are genuinely unquantifiable *in this
+  tool*: the backtest was removed in v0.2, so there is nothing to calibrate "is the market
+  overheated" against. Inventing a number would be exactly the false precision the honest-
+  framing policy exists to prevent — and a valuation tilt would systematically demote
+  semiconductor/AI names, precisely the names the HK channel surfaces most. A **sourced
+  notice is the only truthful form available.**
+- **What the framework is blind to.** The quality axis is entirely backward-looking: a
+  company that has beaten for eight straight quarters with three years of growth already in
+  the price, and a company with identical ROE that nobody expects anything from, **score the
+  same on `Q`**. `EV/EBITDA` does not help — it is a screen gate only, never scored, and it
+  is an absolute threshold rather than a position within the stock's own history.
+- **Sector-level evidence, per-stock attribution.** "The expectations bar for semiconductors
+  / AI infrastructure has been raised" is corroborable in Reuters/WSJ/BlackRock/Fed material.
+  "The market's expectations for AVGO specifically are too high" is not — single-stock
+  sentiment assertions are the **highest-fabrication-risk content in this skill**, fluent and
+  trivially invented. So the notice retrieves at group level and narrates by attributing the
+  stock to its group. **The C2 two-source hard gate is never relaxed here**; where evidence
+  is thin the entry says so explicitly, which is itself information.
+- **Constructive, not defensive.** It is not a second disclaimer — the standing verbatim one
+  already covers that. Its argument is the point: **Tier A means highest-ranked on the
+  measurable dimensions, and precisely for that reason such a name is more likely already
+  fully priced. The two readings must be held together.** Stated once at the section head,
+  never per stock.
+- **No new retrieval scope.** M1 was already bound to the post-screen universe's industries;
+  v0.33 adds a *facet* to that retrieval, not a scope. Per-stock retrieval is out of scope.
+- **Unchanged:** the composite, `Q''`, `C`, rank order, tiers, the v0.31 overlay, the screen,
+  the input gates and the existing disclaimer.
+
+---
+
+## v0.32 — currency-integrity defect patch (2026-08-16)
+
+**v0.32 — a defect patch, not a feature iteration.** It closes a currency-unit
+hole that v0.3's days-to-liquidate metric silently opened, and adds two input-review
+warnings the existing gates do not produce. It is kept as a separate version line so a
+reader can tell which changes *added* behaviour and which *corrected* it.
+- **`currency` is now a required Stage 1a field**, normalised to ISO-4217, and **`null`
+  when the factsheet does not state one — never defaulted to USD.** A bare `$` is
+  ambiguous (USD/HKD/SGD/AUD) and counts as unstated.
+- **Only USD-reporting funds enter the days-to-liquidate aggregate.** ADV is always USD,
+  so an HKD-reported AUM overstated days-to-liquidate by ~7.8× — silently, with no error
+  and no flag. That matters disproportionately here: the target input is the **Hong Kong
+  distribution channel**, where HKD-denominated share classes are routine.
+- **Excluded, never converted.** FX conversion would need a rate source, a rate-date policy
+  and a new provenance path — three new failure modes to repair a metric that already has
+  a well-defined NAV-only fallback. **No FX conversion exists anywhere in the codebase.**
+  An excluded fund still counts in full toward overlap, consensus and style diversity;
+  only its AUM is set aside, and tickers held solely by such funds show NAV-only crowding.
+- **Thin-US-exposure warning.** A global fund with 5 US holdings at 21% of AUM passes the
+  viability gate, then votes in the consensus signal exactly as loudly as a 95%-US fund —
+  `n_funds_holding` counts funds, not exposure. Funds at 20–35% are flagged in Layer 1,
+  Layer 2 and Appendix 3 and are deliberately **not** down-weighted: re-weighting would
+  alter `C`, whose definition is locked. A defect patch corrects; it does not redefine a signal.
+- **Stage 0 regional advisory.** A regional fund is otherwise rejected only at Stage 1c —
+  *after* the most expensive step in the pipeline. A title match now raises an advisory up
+  front. **Non-blocking by design**: a keyword is not evidence, Stage 1c remains the sole
+  authority on rejection, and a false advisory costs one sentence while a false rejection
+  would discard a valid input.
+- **One consolidated input review** at the top of `layer1_extraction.md`, so the user sees a
+  single review of what they submitted rather than warnings scattered across sections.
+- **Unchanged:** composite weights (50/50), `Q''`, `C`, rank order, viability thresholds
+  (≥5 holdings, ≥20% weight), Stage 0 blocking behaviour, and the entire v0.31 overlay. On
+  an all-USD input set the numeric output is bit-for-bit identical to v0.31.
+
+---
+
+## v0.31 — the coherence overlay (2026-08-06)
+
+**v0.31 — the coherence overlay.** A bolt-on that asks one question per ranked
+stock: do the **macro read**, the **sector operating logic**, and the **sector-relative price
+action** tell the same story? Where they contradict each other, the stock's picture is
+incoherent — and in this tool incoherence is uncertainty, which is treated as a quality
+defect. Key deltas vs v0.3:
+- **Demotion-only, by construction.** The overlay can move a stock **down one display tier**
+  and never up. That is what makes it a bolt-on rather than a rewrite: switch it off and the
+  report is exactly the v0.3 output — reversibility as a hard property, not an aspiration.
+- **Rank never moves; only the tier does.** A stock ranked #3 whose macro and sector logic
+  contradict each other stays at **rank #3**, shown in **Tier B**, with the contradiction named
+  on its card. Rank stays a purely quantitative product of the composite; the tier carries the
+  qualitative judgment, and the two stay separable — *"ranked #3, demoted to B because X
+  contradicts Y"* is auditable in a way that folding macro into the score never could be.
+- **Not a third scoring axis.** `0.4·Q + 0.4·C + 0.2·Macro` was rejected: with no backtest
+  (removed in v0.2) the weight cannot be calibrated, and writing one down would be exactly the
+  false precision this tool's honesty framing exists to prevent. **Weights stay 50/50.**
+- **The macro stage moved earlier (M1: after 3a → after 2d)** and is now scoped to the
+  **post-screen universe's** industries. Tiering depends on macro, so macro must exist before
+  ranking — and the top-15 is *produced by* ranking, so the old anchor was circular. Pure
+  sequencing move: M1's sources, directed-fetch policy and hard corroboration gate are unchanged.
+- **Sector logic generalised to three universal questions** — *what constrains the inputs / how
+  much pricing power / what return on capital deployed* — replacing the physical supply-chain
+  triad, which produces confident nonsense on software, financial and consumer names.
+- **ETF check is divergence detection, never confirmation.** Relative strength **vs SPY** over
+  **fixed 3M/6M/12M** windows. Price agreeing with a thesis is not treated as evidence for it:
+  momentum confirmation is pro-cyclical and consensus already is, so stacking them would point
+  both signals the wrong way together in a de-rating.
+- **Missing data is never a verdict.** No sector-ETF mapping or a sparse macro read yields
+  **"insufficient data", tier unchanged** — it may not pass as coherence, nor be punished as a
+  contradiction, which would let data gaps drive tiering.
+
+Full spec: [`references/coherence_overlay.md`](./references/coherence_overlay.md).
+
+---
+
+## v0.3 — risk-aware consensus (2026-06-14)
+
+**v0.3** — risk-aware consensus, confidence-penalised quality, central-bank-anchored
+macro appendix, conservative-by-design. Key deltas vs v0.2:
+- **Confidence-shrunk quality (A4).** The quality half is low-anchor shrunk: `Q'' = c·Q + (1−c)·10`.
+  Low-confidence (yfinance) quality is pulled toward a low-but-non-zero anchor, so unverifiable
+  numbers cannot float a stock to mid-pack. Applied to quality only; not re-percentiled.
+- **Exit-crowdedness (A2).** Crowding now folds in days-to-liquidate = (Σ fund_AUM × weight) / ADV,
+  labelled liquidity-inclusive or NAV-only.
+- **Style-diversity-weighted consensus (A3).** Cross-style agreement outweighs same-mandate
+  funds; a run-level homogeneity warning fires when the input is single-style. Stratified
+  sampling is abandoned (sample too small; token budget).
+- **SEC email gate (B1).** A user-supplied contact email is required and injected into the EDGAR
+  User-Agent (SEC returns 403 without it).
+- **Macro & expectations appendices (C).** Central-bank-anchored, primary-first, with a hard
+  ≥2-primary-tier corroboration gate and per-sentence attribution.
+- **Denser PDF + checkpoint copy (D).** Fewer forced page breaks; all checkpoint `.md` files are
+  copied to the user-visible outputs directory.
+
+---
+
+## Design decisions across versions (v1 → v0.2 → v0.3 → v0.31 → v0.32 → v0.33)
+
+
+| Decision        | v1                                                   | v0.2                                                 | v0.3                                                              | v0.31                                                        |
+| --------------- | ---------------------------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------ |
+| Scope           | Multi-market, claimed alpha                          | US equities, honestly scoped to HK channel           | unchanged                                                         | unchanged                                                    |
+| Strategies      | 3 parallel (Growth / Conservative / Risk-avoidance)  | 1 ranking, 3 display tiers                           | unchanged                                                         | 1 ranking; tiers now carry judgment, not just position       |
+| Backtest        | Monthly-rebalanced with CAGR/Sharpe/MDD              | Removed (misleading given inputs)                    | unchanged (still none)                                            | still none — which is *why* the overlay carries no weight    |
+| Output language | Bilingual (English + Chinese)                        | English-only                                         | unchanged                                                         | unchanged                                                    |
+| Data source     | yfinance + FRED only                                 | EDGAR (conf 0.9) + yfinance (conf 0.5)               | + central-bank directed-fetch (Fed/ECB/BoJ) for macro appendix    | + yfinance quotes for sector-ETF RS (no new macro sources)   |
+| Quality metric  | Continuous score (industry + growth + quality_value) | Binary screen + single ROE percentile rank           | + low-anchor confidence shrinkage `Q'' = c·Q + (1−c)·10`          | unchanged                                                    |
+| Consensus       | Raw count                                            | Consensus-with-crowding (NAV-share discount)         | Style-diversity-weighted + exit-crowdedness (days-to-liquidate)   | unchanged                                                    |
+| Composite       | n/a                                                  | Fixed 50/50                                          | Fixed 50/50                                                       | Fixed 50/50 — overlay is **not** a third axis                |
+| Tiers           | n/a                                                  | Display slice of rank                                | Display slice of rank                                             | Rank slice, then **demotion-only** coherence adjustment      |
+| Macro position  | n/a                                                  | n/a                                                  | M1 after 3a, scoped to top-15 industries                          | M1 after **2d**, scoped to the **post-screen universe**      |
+| Price signal    | Momentum-ish                                         | none                                                 | none                                                              | Divergence detector only (RS vs SPY, fixed windows)          |
+| EDGAR UA        | n/a                                                  | Hardcoded, no email (would 403)                      | User-supplied contact email, gated at Stage 0 (B1)               | unchanged                                                    |
+
+**v0.32 deltas (defect patch — nothing above changes):**
+
+| Decision | v0.31 | v0.32 |
+| --- | --- | --- |
+| `currency` field | in the schema, never validated or read | **required at Stage 1a**, ISO-4217, `null` when unstated, never defaulted |
+| Non-USD fund AUM | silently summed into a USD-named aggregate | **excluded** from the aggregate; ticker falls back to NAV-only |
+| FX conversion | n/a | **none, deliberately** — exclude and label, never convert |
+| Marginal US exposure (20–35%) | invisible; votes like a 95%-US fund | flagged in Layer 1 / 2 / Appendix 3; **vote unchanged** |
+| Regional fund feedback | only at Stage 1c, after the expensive parse | **Stage 0 advisory**, non-blocking; Stage 1c still decides |
+| Input warnings | scattered across sections | **one consolidated input-review block** |
+
+**v0.33 deltas (outermost-layer addition — nothing above changes):**
+
+| Decision | v0.32 | v0.33 |
+| --- | --- | --- |
+| Expectations bar / sentiment cycle | invisible to the framework, and unmentioned | stated as a **measurement boundary**, with sector-level evidence and references |
+| Where it sits | n/a | **outside every layer** — no score, no rank, no tier; removable with bit-for-bit identical numbers |
+| Quantify it? | n/a | **no.** No backtest exists to calibrate "overheated"; a number would be false precision, and a valuation tilt would systematically demote semiconductor/AI names |
+| Evidence granularity | n/a | corroborated at **sector/theme level**, narrated by attributing the stock to its group — never a stock-level sentiment claim |
+| C2 hard gate | ≥2 primary-tier sources | **unchanged, and explicitly not relaxed** for the notice; thin evidence produces an explicit not-found statement |
+| Retrieval scope | M1 bound to post-screen industries | **same scope, one more facet** — no per-stock retrieval |
+| Register | n/a | **constructive, not a second disclaimer**; the "Tier A ≠ best entry" argument stated once at the section head |
