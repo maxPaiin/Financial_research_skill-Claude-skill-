@@ -19,9 +19,9 @@ description: Ranks US-listed equities, including ADRs, surfaced by 7-11 Hong Kon
 | Stage | Script / Actor | Reads | Writes |
 |---|---|---|---|
 | 0 | `validate_uploads.py <dir> --email <e> --out stage0_validation.json` | upload dir + email | stdout (errors) + `stage0_validation.json`; **regional advisories on stderr (G3, non-blocking)** |
-| 1a | Claude (LLM) | each PDF (pdfplumber tables + LLM normalise) | `holdings.json` (one record per fund, incl. inferred `style` **and required `currency`**) |
+| 1a | Claude (LLM) | each PDF (pdfplumber tables + LLM normalise) | `holdings.json` (one record per fund: **required `currency`**, **`benchmark` exactly as printed or null** (v0.4), `style` for display only) |
 | **1b-resolve** | `resolve_tickers.py --holdings holdings.json --email <e>` | `holdings.json`, SEC exchange file | `holdings.json` (each equity row + `ticker_resolved`, `listing_exchange`, `resolution`); rows needing review printed |
-| 1b–d | `extract_holdings.py --dedupe` | `holdings.json` | `holdings.json` (row kept **iff** `resolution.status == kept`; unresolved rows fall back to the labelled legacy format check; `currency` normalised to ISO-4217/null, `thin_us_exposure` flagged) |
+| 1b–d | `extract_holdings.py --dedupe` | `holdings.json` | `holdings.json` (row kept **iff** `resolution.status == kept`; unresolved rows fall back to the labelled legacy format check; identical share classes merged (v0.4); `disclosure_depth`/`disclosure_floor`; `currency` normalised to ISO-4217/null, `thin_us_exposure` flagged) |
 | 1e | `layer1_report.py --stage0` | `holdings.json`, `stage0_validation.json` | `layer1_extraction.md` (**opens with the consolidated input review, G4**) |
 | 2a | `overlap_analysis.py` | `holdings.json` | `overlap.json` |
 | 2b | `fetch_fundamentals.py --email <e>` | `holdings.json` | `fundamentals.json`, `unscored_tickers.json`, `data_provenance.json` |
@@ -30,16 +30,18 @@ description: Ranks US-listed equities, including ADRs, surfaced by 7-11 Hong Kon
 | **M1** | Claude + directed-fetch | `screen_results.json` → **post-screen-universe industries** (Fed/ECB/BoJ + official stats) | `macro_checkpoint.md` (**v0.33: also the per-industry expectations-bar / sentiment-cycle facet — same scope, same C2 gate**) **+ `macro_factors.json`** (rate-path / inflation-trend fields only — the facet must NOT go here) |
 | **M1b** | Claude | `screen_results.json` industries + Layer-2 fundamentals | `sector_logic.json` (E2.2 three universal questions per industry) |
 | 2e | `compute_scores.py` | `fundamentals.json`, `screen_results.json` | `scores_per_stock.json` (carries `adv`/`market_cap`) |
-| 2f | `crowding_signal.py --holdings --fundamentals` | `overlap.json`, `holdings.json`, `fundamentals.json` | `crowding_signals.json` (days-to-liquidate **from USD-reporting funds only**, style-diversity, homogeneity, `input_review`) |
-| 2g | `layer2_report.py --scores scores_per_stock.json` | overlap, screen, fundamentals, crowding, scores | `layer2_screening.md` (liquidity labels + **currency exclusions** + homogeneity + **thin-exposure count** + **passed-but-unscored list**) |
-| 3a | `build_rankings.py` | `scores_per_stock.json`, `crowding_signals.json`, `overlap.json` | `rankings.json` (low-anchor Q'') — **sole author of composite + rank** |
+| **2f-i** | `benchmark_weights.py --holdings --out benchmark_weights.json` | `holdings.json` (`benchmark`), yfinance proxy top holdings | `benchmark_weights.json` (proxy ETF, top-10, `b10`, or null + reason) |
+| **2f-ii** | `consensus_signal.py --holdings --benchmark-weights [--vote-basis active\|presence] [--vote-floor common\|none]` | `holdings.json`, `benchmark_weights.json` | `consensus.json` (N_eff, fund weights, votes, `c_share`, bands, anchored core) |
+| 2f-iii | `crowding_signal.py --overlap --holdings --fundamentals` | `overlap.json`, `holdings.json`, `fundamentals.json` | `crowding_signals.json` (days-to-liquidate **from USD-reporting funds only**, `is_exit_crowded`, `input_review`, style distribution for display) |
+| 2g | `layer2_report.py --scores --consensus` | overlap, screen, fundamentals, crowding, scores, consensus | `layer2_screening.md` (consensus structure + exit liquidity + **currency exclusions** + **thin-exposure count** + **passed-but-unscored list**) |
+| 3a | `build_rankings.py --scores --consensus --overlap` | `scores_per_stock.json`, `consensus.json`, `overlap.json` (display) | `rankings.json` — **sole author of rank**: order (band, −Q'', −c_share, ticker), up to 15 |
 | **3a-bis-i** | `etf_relative_strength.py` | `rankings.json` (read-only), yfinance quotes | `etf_relative_strength.json` (RS vs SPY, fixed 3M/6M/12M) |
-| **3a-bis** | `coherence_audit.py` | `rankings.json` (read-only), `macro_factors.json`, `sector_logic.json`, `etf_relative_strength.json` | `coherence.json` (side-car; **`rankings.json` untouched**) |
+| **3a-bis** | `coherence_audit.py --crowding crowding_signals.json` | `rankings.json` (read-only), `macro_factors.json`, `sector_logic.json`, `etf_relative_strength.json`, `crowding_signals.json` | `coherence.json` (side-car; contradictions **and exit-liquidity risks**; **`rankings.json` untouched**) |
 | 3b | Claude (LLM, 3 batches of 5) | `rankings.json`, `coherence.json` | rationale cards (name each stock's contradiction / explain its divergence) |
-| 3c | Claude (LLM) | all Layer 2 outputs + `crowding_signals.json` | honest framing prose (HK-bias stated **once**) |
-| 3d | `layer3_report.py --coherence` | `rankings.json`, `coherence.json`, framing, rationale | `layer3_ranked_advice.md` (tier grouping applies demotions; **rank display unchanged**) |
+| 3c | Claude (LLM) | all Layer 2 outputs + `rankings.json` (`n_eff_run`) | honest framing prose (HK-bias, the consensus definition, the "too small to crowd" sentence and N_eff — each stated **once**) |
+| 3d | `layer3_report.py --coherence --crowding` | `rankings.json`, `coherence.json`, `crowding_signals.json`, framing, rationale | `layer3_ranked_advice.md` (v0.4 cards; benchmark-anchored core section; tier grouping applies demotions; **rank display unchanged**) |
 | M2 | Claude | `rankings.json`, `macro_checkpoint.md` | `expectations_checkpoint.md` (still post-rank, scoped to the final 15) |
-| M3 | Claude | `crowding_signals.json` homogeneity + style dist + `input_review.thin_us_exposure` | `appendix3_consensus_warning.md` (**thin-exposure caveat when any accepted fund is thin; omitted entirely when none is**) |
+| M3 | Claude | `consensus.json` (N_eff, ω, marginal contributions) + `crowding_signals.json` (style dist, `input_review.thin_us_exposure`, DTL) | `appendix3_consensus_warning.md` (remediation: **replace the lowest-contribution fund with a dissimilar one**; thin-exposure caveat only when a fund is thin) |
 | **H1** | Claude | `rankings.json` (read-only) + the M1 facet in `macro_checkpoint.md` | `important_notice_checkpoint.md` (per-stock expectations bar + sentiment cycle, **group-attributed**) |
 | Mg | `check_checkpoints.py <work-dir>` | all checkpoints + `coherence.json` | stdout (gate; exit 1 on failure) |
 | 4 | `build_report.py` | layer + appendix .md files **+ `important_notice_checkpoint.md`** | `financial_research_report.pdf` (notice rendered **after the appendices, before methodology**) + checkpoint copies (incl. `coherence.json`) in outputs |
@@ -69,7 +71,7 @@ description: Ranks US-listed equities, including ADRs, surfaced by 7-11 Hong Kon
 > factsheet does not state one, write **`currency: null`** — **do not guess and
 > never default to USD.** A bare `$` or `¥` is ambiguous and counts as unstated.
 > Only USD-reporting funds enter the days-to-liquidate aggregate; the rest are
-> excluded (never FX-converted) and fall through the existing NAV-only path.
+> excluded (never FX-converted); their tickers carry no days-to-liquidate figure.
 
 > **Stage 0 regional advisory (v0.32 G3):** a title matching a regional marker
 > (Asia / Europe / Japan / China / EM / Latin America / India / ASEAN, plus
@@ -78,11 +80,22 @@ description: Ranks US-listed equities, including ADRs, surfaced by 7-11 Hong Kon
 > file-count logic — Stage 1c remains the sole authority on rejection. Relay it
 > to the user so they can swap the upload before the expensive Stage 1a parse.
 
-> **Stage 1a fund-style inference (A3 / Appendix 3):** infer a coarse `style`
+> **Stage 1a benchmark (v0.4 B3):** record the benchmark **exactly as printed** on the
+> factsheet as `benchmark`; `null` when none is printed. **Never infer it** — a fund
+> without a benchmark simply casts presence votes, and the report says so.
+
+> **Stage 1a fund-style inference (display only since v0.4):** infer a coarse `style`
 > per fund — one or more of `{value, growth, blend, income_dividend,
 > sector_specific, small_mid_cap, region_tilt_non_us}` — from name keywords,
-> stated benchmark, and top-holdings profile. Persist on each fund record. Build
-> it once; it feeds both A3 and Appendix 3. See `references/macro_appendix.md`.
+> stated benchmark, and top-holdings profile. It appears in Layer 2 and Appendix 3
+> as context; **it enters no number** (I9). See `references/macro_appendix.md`.
+
+> **Stages 2f-i/2f-ii (v0.4 consensus):** a vote is a position above the common
+> floor and, where the benchmark proxy's top-10 is known, at or above benchmark
+> weight capped at 10%; funds are weighted by independence. If `build_rankings.py`
+> warns `few_eligible`, **tell the user** and offer to rerun 2f-ii and 3a with
+> `--vote-basis presence`; never switch silently. Spec:
+> `references/consensus_signal.md`.
 
 > **Stages M1–M3 (macro subsystem):** primary-first directed-fetch, cross-source
 > corroboration **hard gate** (≥2 primary-tier sources per fact), per-sentence
@@ -134,7 +147,9 @@ description: Ranks US-listed equities, including ADRs, surfaced by 7-11 Hong Kon
 | EDGAR returns empty for ticker | Fall through to yfinance |
 | yfinance also returns empty | Mark ticker as unscored; disclose in `layer2_screening.md` |
 | Stock passes the screen with < 2 defined ROE years | `unscored_no_roe` in `scores_per_stock.json`; listed under "Passed the screen but could not be scored"; never ranked |
-| No AUM / no ADV for a crowded name | Crowding falls back to NAV-only; label it (no crash) |
+| No AUM / no ADV for a name | No days-to-liquidate; label it `no-liquidity-data` (no crash, never a demotion) |
+| `few_eligible` warning from 3a | Tell the user; offer a `--vote-basis presence` rerun of 2f-ii + 3a. No automatic fallback |
+| Benchmark not printed / not in the proxy table | `benchmark: null` or unmapped → that fund casts presence votes; Layer 1 says which |
 | Macro claim has only 1 primary-tier source | Do NOT write it (C2 hard gate) |
 | No sector-ETF mapping / sparse macro read | Overlay records **"insufficient data"**, tier unchanged — never treat as coherent, never demote for it |
 | yfinance quote fetch fails for a sector ETF | That sector's RS is insufficient-data; other sectors still audited; no crash |
@@ -177,28 +192,30 @@ The closing chat message points the user to `/mnt/user-data/outputs` for the PDF
 
 - US exchange-listed equities only: SEC's exchange file must list the ticker on Nasdaq, NYSE or CBOE (v0.34). ADRs in scope; OTC lines and home-market lines are excluded and disclosed; a non-US ISIN alone never excludes a US-listed share.
 - English-only in all output files. Chat may be bilingual.
-- One ranking (top 15), three display tiers. No parallel strategies. No backtest.
-- **The coherence overlay may only DEMOTE**, by at most **one tier per stock**, no matter how many pairs contradict. It never promotes, never changes rank, never touches the composite, `Q''` or `C`. `rankings.json` is **read-only** to it; its only output is `coherence.json`. Removing Stage 3a-bis must leave a runnable pipeline producing the v0.3 report.
-- **The overlay is not a third scoring axis.** Weights stay **50/50**; a macro weight cannot be calibrated (no backtest exists), so none is written.
+- One ranking (up to 15), three display tiers. No parallel strategies. No backtest.
+- **Consensus (v0.4, DEC-1/DEC-3):** a vote is a position above the common floor and at or above benchmark weight capped at 10% (presence where no proxy exists); funds weighted by independence (`N_eff_run`); bands majority (≥ ½ of independent opinion **and** ≥ 2 voting funds) / plural / single. Zero votes → not ranked; held by most funds with no vote → **benchmark-anchored core**, listed, not ranked.
+- **The ranking is an ordering, not a weighted sum (DEC-2):** (band, −Q'', −c_share, ticker). No weight is written down. LLM-inferred labels never enter it (I9).
+- **The coherence overlay may only DEMOTE**, by at most **one tier per stock**, no matter how many checks fail (contradictions and the v0.4 exit-liquidity risk alike). It never promotes, never changes rank, never touches `Q''` or the consensus. `rankings.json` is **read-only** to it; its only output is `coherence.json`. Removing Stage 3a-bis must leave a runnable pipeline producing the pre-overlay report.
+- **The overlay is not a scoring axis.** A macro weight cannot be calibrated (no backtest exists), so none is written.
 - ETF checks are **divergence detection, never confirmation**: relative strength **vs SPY** over **fixed 3M/6M/12M** windows. Divergence yields a flag **plus a required explanation**, not an automatic penalty.
 - Sector logic uses the **three universal questions** (inputs / pricing power / return on capital), instantiated per industry — never blank-filled physical-supply-chain fields on software, financial or consumer names.
 - **No industry-policy or company-level supply-chain claims anywhere in the output** (deferred; company supplier relationships are not in EDGAR's structured data and are the highest fabrication risk in the proposal).
 - Do not fabricate data. If EDGAR and yfinance both fail, mark unscored.
-- **Composite weights fixed at 50/50.** Quality half is low-anchor shrunk: `Q'' = c·Q + (1−c)·Q_low`, `Q_low = 10` and **must stay > 0**; applied to Q only, never re-percentiled. `c` is `quality_confidence`, the confidence of the ROE points alone (v0.34).
-- Crowding = exit-crowdedness (days-to-liquidate, simultaneous-exit assumption); each figure labelled liquidity-inclusive / NAV-only.
+- **Quality is low-anchor shrunk:** `Q'' = c·Q + (1−c)·Q_low`, `Q_low = 10` and **must stay > 0**; never re-percentiled. `c` is `quality_confidence`, the confidence of the ROE points alone (v0.34).
+- **Crowding is out of the rank (DEC-4).** Days-to-liquidate (USD-reporting holders, simultaneous exit) ≥ 10 is an overlay risk → one tier down + HIGH CROWDING on the card. Each figure labelled liquidity-inclusive / no-liquidity-data.
 - **`currency` is required at Stage 1a and never defaulted.** Only `currency == "USD"` funds contribute AUM to `aggregate_position_usd`; non-USD and `null` are **excluded, never converted**. **No FX conversion may exist anywhere in the codebase** — the units are either identical or the input is set aside and labelled. There is no third path.
-- **Thin US exposure (20–35% of AUM) is a warning, never a re-weighting.** Such funds are accepted in full and their consensus contribution is unchanged — `C`'s definition is locked, and exposure-weighting it belongs to a signal iteration, not a defect patch. Viability thresholds (≥5 holdings, ≥20% weight) are unchanged.
+- **Thin US exposure (20–35% of AUM) is a warning, never a re-weighting.** Such funds are accepted in full and vote on their positions like any fund. Viability thresholds (≥5 holdings, ≥20% weight) are unchanged.
 - **Stage 0 regional advisories are non-blocking**: never in `errors`, never affecting `ok`, the exit code, or the file-count logic.
-- **The Important Notice changes nothing it is placed after.** It never enters `Q''`, `C`, the composite, `rankings.json` or `coherence.json`, and is not a fourth coherence input. Deleting `important_notice_checkpoint.md` must leave every rank, tier and score bit-for-bit identical.
+- **The Important Notice changes nothing it is placed after.** It never enters `Q''`, the consensus, `rankings.json` or `coherence.json`, and is not a coherence input. Deleting `important_notice_checkpoint.md` must leave every rank, tier and score bit-for-bit identical.
 - **Notice evidence is sector-level; notice wording must not exceed it.** Corroborate at sector/theme level, narrate by attributing the stock to its group. No stock-level sentiment or valuation assertion anywhere — "this group is in an elevated-expectations environment", never "this stock is overpriced". The defect in the second is not that it resembles advice, it is that it exceeds the granularity of the evidence.
 - **The C2 hard gate is never relaxed for the notice.** ≥2 primary-tier sources per claim, or an explicit statement that no corroborating evidence was found. Admitting single-source claims here would make it the one low-standard region in the report — and the one most easily fabricated.
 - **The notice is written constructively, not defensively.** It is not a second disclaimer; the standing verbatim disclaimer already covers that. Its argument — **Tier A means highest-ranked on the measurable dimensions, and precisely for that reason such a name is more likely already fully priced** — is stated ONCE at the section head, not per stock (same discipline as the HK-bias note).
 - **Presenting sentiment evidence does not create a regime detector.** The notice must say plainly that the tool still has none.
 - **No new retrieval scope for v0.33.** M1's existing post-screen sector scope gains a facet; per-stock retrieval is out of scope.
-- Consensus is style-diversity-weighted; stratified sampling is abandoned (sample too small; token budget) — disclose both reasons.
+- Consensus is independence-weighted from the holdings themselves; stratified sampling is abandoned (sample too small; token budget) — disclose both reasons.
 - Macro/expectations facts: ≥2 primary-tier sources (HARD gate), per-sentence attribution, no blacklist.
 - Stage 3b: cards in 3 batches of 5, never all 15 at once.
-- **HK-bias note stated ONCE** in the framing section — NOT on every card. High-crowding cards keep their per-card warning; front/back disclaimer intact.
+- **HK-bias note stated ONCE** in the framing section — NOT on every card; likewise the consensus definition, the "too small to crowd" sentence and N_eff. Exit-crowded cards keep their per-card HIGH CROWDING flag; front/back disclaimer intact.
 - A valid SEC contact email is required before any EDGAR fetch (B1).
 - Copyright: paraphrase fetched content, never reproduce; per-sentence attribution in the macro appendices.
 

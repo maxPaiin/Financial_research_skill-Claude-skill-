@@ -1,131 +1,99 @@
-# Crowding Signal Reference
+# Exit Liquidity and the Currency Gate
 
-This file explains the consensus-with-crowding-discount signal.
-It is a reader — no executable rules. The canonical formula and constants are in
-`scripts/crowding_signal.py`.
+This file explains the exit-liquidity measure and the currency gate that protects it. It is
+a reader — no executable rules. The canonical code is `scripts/crowding_signal.py`; the
+overlay check that uses it is in `scripts/coherence_audit.py`.
+
+The consensus signal — what the funds collectively hold, and how much each fund's opinion
+counts — is no longer here. See [`consensus_signal.md`](./consensus_signal.md).
 
 ---
 
-## What the signal is
+## Contents
 
-A single number that captures:
-- How widely held a stock is across the fund universe (**consensus**)
-- Discounted for the risk that high consensus at large positions represents HK-channel
-  crowding (**crowding discount**)
+1. [What changed in v0.4](#what-changed-in-v04)
+2. [Days-to-liquidate](#days-to-liquidate)
+3. [The currency gate: exclude, never convert (v0.32 G1)](#the-currency-gate-exclude-never-convert-v032-g1)
+4. [Thin US exposure: warn, do not re-weight (v0.32 G2)](#thin-us-exposure-warn-do-not-re-weight-v032-g2)
+5. [The input review and the style distribution](#the-input-review-and-the-style-distribution)
+6. [What it cannot show](#what-it-cannot-show)
 
-Two separate signals would imply independence that does not exist — consensus and crowding
-are highly correlated. One combined signal is more honest (§6 D6 decision).
+---
 
-## Formula (v0.3, amended by v0.32 G1)
+## What changed in v0.4
+
+v0.3 folded crowding into the rank as a discount on the consensus signal. That discount
+measured **NAV weight — conviction — rather than exit risk**: its weight term saturated at a
+10% average weight, which is also the single-issuer ceiling, and its liquidity term could only
+add to it (F2). A mega-cap held by seven funds at 8% with less than a tenth of a day to
+liquidate took the maximum 60% discount.
+
+v0.4 (DEC-4) takes crowding **out of the rank**. Position size no longer lowers a stock's
+rank. What remains is the one crowding question the factsheets can answer — how long would
+these holders need to sell — and it feeds the coherence overlay as a demotion-only risk check
+(`exit_liquidity`, see `coherence_overlay.md`).
+
+## Days-to-liquidate
 
 ```
-consensus_raw       = log(1 + n_funds_holding)
-
-# A3 — style-diversity weighting of consensus
-diversity           = (n_distinct_holder_styles - 1) / (n_funds_holding - 1)   # [0,1]
-style_factor        = STYLE_MIN_FACTOR + (1 - STYLE_MIN_FACTOR) * diversity     # [0.5,1]
-consensus_weighted  = consensus_raw * style_factor        # 1.0 if styles unavailable
-
-crowding_raw        = max(0, (avg_weight - AVG_WEIGHT_THRESHOLD) / WEIGHT_RANGE)
-                      * (n_funds_holding / FUND_DENOMINATOR)
-
-# A2 — exit-crowdedness (days-to-liquidate), only when AUM + ADV are present
-# G1 (v0.32): the sum runs over USD-REPORTING funds only. ADV is always USD.
-aggregate_position_usd = Σ_{funds with currency == "USD"} (fund_AUM × weight_in_fund)
+aggregate_position_usd = sum over holders reporting AUM in USD of (fund_AUM × weight_in_fund)
 days_to_liquidate      = aggregate_position_usd / ADV_usd
-liq                  = clamp(days_to_liquidate / DTL_FULL, 0, 1)
-crowding_raw'        = crowding_raw * (1 + LIQ_WEIGHT * liq)   # else crowding_raw (NAV-only)
-
-crowding_discount    = min(crowding_raw', MAX_DISCOUNT)
-signal               = consensus_weighted * (1 - crowding_discount)
+is_exit_crowded        = days_to_liquidate >= 10
 ```
 
-Constants (canonical in `crowding_signal.py`):
-- `AVG_WEIGHT_THRESHOLD = 0.02` — below this, no crowding discount applies
-- `WEIGHT_RANGE = 0.08` — range over which discount increases from 0 to full
-- `FUND_DENOMINATOR = 5.0` — 5+ funds at moderate weight starts to suggest crowding
-- `MAX_DISCOUNT = 0.60` — discount capped at 60%
-- `DTL_FULL = 10.0` — days-to-liquidate at which the illiquidity amplifier saturates
-- `LIQ_WEIGHT = 0.50` — max fractional uplift to crowding from full illiquidity
-- `STYLE_MIN_FACTOR = 0.50` — consensus weight retained by a fully style-homogeneous holder set
-- `HOMOGENEITY_THRESHOLD = 0.80` — dominant input-style share that triggers the homogeneity warning
+- The formula assumes **every holder exits at once** — the tail-risk framing.
+- **10 days is a round, uncalibrated line** separating days from weeks. There is no backtest
+  to fit it against, and it is labelled as such wherever it appears.
+- Each ticker is labelled `liquidity-inclusive` (AUM and ADV available) or
+  `no-liquidity-data` (either missing). A missing figure is never a guess and never a verdict:
+  the overlay records it as insufficient data, and the tier does not move.
+- An exit-crowded stock is **demoted one display tier** by the overlay and its card carries
+  a HIGH CROWDING flag. Its rank never changes.
 
-## A2 — exit-crowdedness (days-to-liquidate)
+## The currency gate: exclude, never convert (v0.32 G1)
 
-The reflexive "everyone exits the same door" risk is position size *relative to exit
-liquidity*, not relative to NAV. ADV is the door width. The formula deliberately assumes
-**simultaneous exit by all holders** — the tail-risk framing the tool surfaces. When AUM
-(per fund) or ADV (per ticker) is missing — **or the fund's AUM is not reported in USD**
-(v0.32 G1, below) — the signal **falls back to the v0.2 pure-weight discount** and the
-figure is labelled **NAV-only** (vs **liquidity-inclusive**); it never crashes on missing
-inputs.
-
-## G1 (v0.32) — the currency gate: exclude, never convert
-
-`days_to_liquidate` divides an AUM-derived numerator by a USD denominator. ADV is always
-USD; a fund's AUM is whatever the factsheet reports. Before v0.3 this did not matter — the
-only AUM-dependent check compared a *weight sum* to a *fraction*, so the currency cancelled.
-The days-to-liquidate metric removed that cancellation, and the failure mode is **silent**:
-an HKD-reporting fund overstates days-to-liquidate by roughly 7.8×, with no error and no
-flag. This matters disproportionately here because the target input is the **Hong Kong
-distribution channel**, where HKD-denominated share classes are routine.
+`days_to_liquidate` divides an AUM-derived numerator by a USD denominator. ADV is always USD;
+a fund's AUM is whatever the factsheet reports. An HKD-reporting fund would overstate
+days-to-liquidate by roughly 7.8× — silently. This matters disproportionately here because the
+target input is the **Hong Kong distribution channel**, where HKD-denominated share classes
+are routine.
 
 The gate is in `fund_aum_map()`:
 
 - A fund's `total_aum` enters the map **only if `currency == "USD"`**.
-- A non-USD or `null` currency means the fund is **omitted from the AUM map** — nothing
-  else. It still contributes to `n_funds_holding`, to weights, and to style diversity. Its
-  holdings are data; only its AUM is in unknown units.
-- No new fallback logic was needed: A2 already drops a fund without usable AUM from the
-  aggregate, and a ticker left with none falls back to **NAV-only**. G1 simply routes
-  non-USD funds down that existing path.
+- A non-USD or `null` currency means the fund is **omitted from the AUM map** — nothing else.
+  Its holdings still count in full toward overlap and consensus; only its AUM is in unknown
+  units.
+- A ticker whose holders all fall outside the map has no liquidity data, and says so.
 
-**No FX conversion exists anywhere in this codebase, by design.** Converting would require
-an FX source, a rate-date policy (the fund's `asof`? the run date?) and a new
-provenance/confidence path — three new failure modes to repair a metric that already
-degrades cleanly. Exclusion is consistent with safety-first and with A4's treatment of
-low-confidence inputs. **Units are either identical or the input is set aside and labelled;
-there is no third path**, and an unstated currency is never assumed to be USD.
+**No FX conversion exists anywhere in this codebase, by design.** Converting would require an
+FX source, a rate-date policy and a new provenance path — three new failure modes to repair a
+metric that already degrades cleanly. **Units are either identical or the input is set aside
+and labelled; there is no third path**, and an unstated currency is never assumed to be USD.
+The same rule governs every ratio in the pipeline: EDGAR ratios are built from same-unit pairs
+(ratios are dimensionless), never converted.
 
-Because the map is USD-only by construction, the name `aggregate_position_usd` is accurate
-rather than aspirational. Do not widen the map without converting — and conversion is out
-of scope.
+## Thin US exposure: warn, do not re-weight (v0.32 G2)
 
-## G2 (v0.32) — thin US exposure: warn, do not re-weight
+The viability gate is binary: ≥5 US holdings **and** ≥20% US weight. Funds whose kept US
+weight falls in **20–35%** are flagged `thin_us_exposure` at Stage 1b and reported in Layer 1,
+Layer 2 and Appendix 3. They are not rejected and their votes are not down-weighted: a vote is
+about a position, not about how much of the fund is in US equity.
 
-The viability gate is binary: ≥5 US holdings **and** ≥20% US weight. A global fund with
-exactly 5 US holdings at 21% of AUM passes fully, then votes in the consensus signal with
-**the same weight** as a 95%-US fund — because `n_funds_holding` counts funds, not exposure.
-This is the A3 false-consensus problem seen from the exposure angle instead of the style
-angle.
+## The input review and the style distribution
 
-Funds whose `scope_summary.weight_kept` falls in **20–35%** are flagged `thin_us_exposure`
-at Stage 1b and reported in Layer 1, Layer 2 and Appendix 3. They are **not rejected and not
-down-weighted**: down-weighting would alter `C`, whose definition is locked, and any change
-to `C` belongs in a signal iteration rather than a defect patch. Warning surfaces the issue
-without touching the score.
+`crowding_signals.json` also carries the input review that Layer 2 and Appendix 3 report —
+the currency census (`input_review.currency`) and the thin-exposure report
+(`input_review.thin_us_exposure`) — and the input set's fund-style distribution
+(`homogeneity`). The style labels are LLM-inferred and are **display only** since v0.4: they
+enter no number. How independent the funds are is measured from their holdings instead
+(`N_eff_run`, `consensus_signal.md` §4).
 
-## A3 — style-diversity-weighted consensus + homogeneity warning
+## What it cannot show
 
-"AAPL held by 9/9 tech funds" carries ~zero information — the consensus is measuring the
-input bias. Weighting consensus by holder style-diversity pushes within-style agreement down
-and cross-style agreement up. **Stratified sampling is abandoned** (sample too small to
-stratify at 7–11 funds; token budget). At the run level, if the input set is style-homogeneous
-(dominant style share ≥ `HOMOGENEITY_THRESHOLD`), a prominent warning fires — its payload is
-Appendix 3. The style label per fund is inferred at Stage 1a (`_KNOWN_STYLES`).
+> Seven to eleven Hong Kong–distributed funds are too small to crowd US large caps; global
+> crowding cannot be measured from factsheets.
 
-## Interpretation
-
-- A stock held by 10 funds at 0.5% average weight scores high consensus, near-zero discount.
-- A stock held by 8 funds at 9% average weight scores high consensus, near-maximum discount.
-- The crowding flag (`is_high_crowding`) is set when `crowding_discount >= 0.30`.
-  Cards for high-crowding stocks display a visible warning to the user.
-
-## Why this form
-
-- `log(1 + n)` compresses the consensus signal: going from 1 to 3 funds matters more than
-  going from 9 to 11.
-- The crowding discount is heuristic, not derived from statistical estimation. The tuning
-  constants are starting defaults; they may be calibrated as more fund data becomes available.
-- This signal is normalized to 0–100 before combining with the fundamental quality score.
-  Normalization is per-run (min/max of the passed universe), not an absolute scale.
+State that sentence once, in the report's framing section. Days-to-liquidate here measures
+what **these holders alone** would take to unwind, using only those that report AUM in USD.
+It says nothing about how crowded a name is across the global market.

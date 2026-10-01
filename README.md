@@ -90,10 +90,10 @@ The verbatim disclaimer in `assets/disclaimer.md` is embedded into every generat
 
 Given **one `.zip` holding 7–11 HKMA-approved global fund factsheet PDFs**, the skill runs a three-layer pipeline:
 
-1. **Layer 1 — Extraction**: validates uploads, extracts US-listed equity holdings (including ADRs) from each fund via LLM-assisted PDF parsing, filters out non-US listings, deduplicates across funds.
-2. **Layer 2 — Overlap & Screen**: builds a cross-fund overlap matrix, fetches fundamentals from SEC EDGAR (true PIT) with yfinance fallback, applies a quality screen (PASS/FAIL), computes a fundamental quality percentile score, and computes the v0.3 consensus signal (style-diversity-weighted, with an exit-liquidity / days-to-liquidate crowding discount).
-3. **Layer 3 — Ranking & Advice**: composite-ranks the passed universe (fixed 50/50; the quality half is low-anchor confidence-shrunk), selects the top 15 stocks, organizes them into Tier A/B/C, and generates per-stock rationale cards with honest framing (HK-bias stated once).
-4. **Coherence overlay (v0.31)**: audits each ranked stock for agreement between the macro read, the sector operating logic and sector-ETF relative strength, and **demotes** — never promotes — the display tier by at most one level where they contradict, naming the contradiction on the card. Writes a side-car `coherence.json`; `rankings.json` is read-only to it.
+1. **Layer 1 — Extraction**: validates the upload, extracts each fund's holdings, keeps only securities SEC's exchange file lists on Nasdaq, NYSE or CBOE (ADRs included; v0.34), merges identical share classes of one fund (v0.4), and deduplicates across funds.
+2. **Layer 2 — Overlap & Screen**: builds a cross-fund overlap matrix, fetches fundamentals from SEC EDGAR (US GAAP and IFRS, true PIT) with a field-level yfinance fallback, applies a quality screen (PASS/FAIL), computes a fundamental quality percentile score, and computes the **consensus signal v2** (v0.4): a vote is a position above the common disclosure floor and at or above benchmark weight (capped at 10%), funds are weighted by how independent they are, and each stock gets a consensus band. It also measures **exit liquidity** (days-to-liquidate, USD-reporting holders only).
+3. **Layer 3 — Ranking & Advice**: orders eligible stocks by **consensus band, then confidence-shrunk quality** — an ordering, not a weighted sum — ranks up to 15 into Tier A/B/C, lists the benchmark-anchored core separately, and generates per-stock rationale cards with honest framing (HK-bias stated once).
+4. **Coherence overlay (v0.31, v0.4)**: audits each ranked stock for agreement between the macro read, the sector operating logic and sector-ETF relative strength — and, since v0.4, for exit liquidity — and **demotes** (never promotes) the display tier by at most one level where a pair contradicts or the stock is exit-crowded, naming the reason on the card. Writes a side-car `coherence.json`; `rankings.json` is read-only to it.
 4b. **Input review (v0.32)**: reports what the submitted set actually is — reporting currency per fund and which funds that excludes from the exit-liquidity aggregate, funds whose US sleeve is thin, Stage 0 regional advisories, rejections, and the style distribution — as one block rather than warnings scattered across sections.
 5. **Macro appendices (v0.3)**: central-bank-anchored macro/sector view, per-stock best/avg/worst scenarios, and an over-consensus / fund-style remediation appendix — all under a hard ≥2-primary-tier source-corroboration gate.
 6. **Important Notice (v0.33)**: a per-stock section on the **expectations bar** and the **sentiment cycle** — the two factors the ranking structurally cannot measure. Evidence is corroborated at sector/theme level and narrated by attributing the stock to its group; where two primary-tier sources do not exist, the entry says so explicitly. It enters no score, rank or tier, and is placed after the appendices and before the methodology.
@@ -112,7 +112,8 @@ Given **one `.zip` holding 7–11 HKMA-approved global fund factsheet PDFs**, th
 - **Not a macro forecaster (v0.31).** The macro readings are directional summaries of central-bank material, not predictions, and the coherence verdict is a qualitative judgment — deliberately unweighted, with no calibrated model behind it.
 - **Not a price-confirmation tool (v0.31).** ETF relative strength is context, never confirmation; sector ETFs carry their own crowding. The overlay can only lower confidence in a name, never raise it.
 - **Not a currency converter (v0.32).** Non-USD fund AUM is excluded from the exit-liquidity aggregate and labelled, never FX-converted. Exclusion has one failure mode the report can state; conversion would add three it could not.
-- **Not an exposure-weighted consensus (v0.32).** The consensus counts funds, not US exposure. Funds with a thin US sleeve are flagged, not down-weighted — that would change a locked signal.
+- **Not an exposure-weighted consensus (v0.32).** A vote is about a position, not about how much of the fund is in US equity. Funds with a thin US sleeve are flagged, not down-weighted.
+- **Not a crowding score (v0.4).** Seven to eleven Hong Kong–distributed funds are too small to crowd US large caps, and global crowding cannot be measured from factsheets. Days-to-liquidate shows what these holders alone would take to unwind, as an overlay risk — never as a penalty on position size.
 - **Not a regime detector (v0.33).** The framework cannot tell you whether the market is currently overheated, and adding sourced sentiment evidence did not change that. The backtest was removed in v0.2, so there is nothing to calibrate such a judgment against — the notice states the boundary rather than papering over it with a number.
 - **Not a stock-level sentiment analyst (v0.33).** "The expectations bar for semiconductors / AI infrastructure has been raised" is corroborable; "the market's expectations for AVGO specifically are too high" is not. The notice describes the *environment a group is in*, never a verdict on a stock's price — the defect in the latter is not that it resembles advice, it is that it exceeds the granularity of the evidence.
 - **Not a supply-chain mapper.** Industry-policy and company-level supplier claims are deliberately out of scope — those relationships are absent from EDGAR's structured data and are the highest fabrication risk in the design.
@@ -148,7 +149,7 @@ v0.4: scripts extract each factsheet's fields and holdings table into `holdings.
 | Fund name               | yes         | Identifies the fund in every downstream report.                                              |
 | Issuer                  | recommended | Shown in Layer 1 / 2 summaries.                                                              |
 | Reporting date (`asof`) | yes         | Per-fund snapshot date; appears in Layer 1 and PIT tracking.                                 |
-| **Reporting currency**  | **yes (v0.32)** | ISO-4217 code for `total_aum` (`USD`, `HKD`, `EUR`, `JPY`, …). **`null` if the factsheet does not state one — never defaulted to USD**; a bare `$` is ambiguous and counts as unstated. Only USD-reporting funds enter the days-to-liquidate aggregate; the rest are excluded (never FX-converted) and their tickers fall back to NAV-only crowding. |
+| **Reporting currency**  | **yes (v0.32)** | ISO-4217 code for `total_aum` (`USD`, `HKD`, `EUR`, `JPY`, …). **`null` if the factsheet does not state one — never defaulted to USD**; a bare `$` is ambiguous and counts as unstated. Only USD-reporting funds enter the days-to-liquidate aggregate; the rest are excluded (never FX-converted), so a ticker held only by them has no days-to-liquidate figure. |
 | Total AUM               | recommended | Activates the "US holdings ≥ 20% of AUM" viability check; without AUM the check is skipped. |
 | Holdings table          | yes         | The core data feeding every downstream stage.                                                |
 
@@ -215,8 +216,8 @@ If fewer than 7 PDFs are supplied, validation stops the pipeline and asks the us
 
 | Layer                       | Stages       | Key scripts                                                                                                                        |
 | --------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Layer 1 — Extraction       | 0–1e        | `validate_uploads.py`, `extract_holdings.py`, `layer1_report.py`                                                                   |
-| Layer 2 — Overlap & Screen | 2a–2g       | `overlap_analysis.py`, `providers/registry.py`, `quality_screen.py`, `compute_scores.py`, `crowding_signal.py`, `layer2_report.py` |
+| Layer 1 — Extraction       | 0–1e        | `validate_uploads.py`, `resolve_tickers.py`, `extract_holdings.py`, `layer1_report.py`                                             |
+| Layer 2 — Overlap & Screen | 2a–2g       | `overlap_analysis.py`, `providers/registry.py`, `quality_screen.py`, `compute_scores.py`, `benchmark_weights.py`, `consensus_signal.py`, `crowding_signal.py`, `layer2_report.py` |
 | Macro (v0.31: after 2d)     | M1, M1b      | Claude directed-fetch → `macro_checkpoint.md` (v0.33: **+ expectations/sentiment facet**) + `macro_factors.json`, `sector_logic.json` |
 | Important Notice (v0.33)    | H1           | Claude → `important_notice_checkpoint.md` — outside every scoring layer; rendered after the appendices, before methodology         |
 | Layer 3 — Ranking & Advice | 3a–3d + PDF | `build_rankings.py`, `etf_relative_strength.py`, `coherence_audit.py`, `layer3_report.py`, `build_report.py`                       |
@@ -231,23 +232,23 @@ Full orchestration logic and error recovery rules: [`SKILL.md`](./SKILL.md).
       ├─► M1  Claude directed-fetch ──► macro_checkpoint.md + macro_factors.json
       └─► M1b Claude ────────────────► sector_logic.json
                                               │
-2e–2f ──► 3a build_rankings.py ──► rankings.json ──┐   (sole author of composite + rank)
+2e–2f ──► 3a build_rankings.py ──► rankings.json ──┐   (sole author of rank)
                                               │    │   READ-ONLY below this line
-                            etf_relative_strength.py│
+         etf_relative_strength.py + crowding_signals.json (v0.4: exit liquidity)
                                               ▼    ▼
                        3a-bis coherence_audit.py ──► coherence.json   (side-car)
                                               │
       3b/3d cards + layer3_report.py ◄────────┘   tier may drop one level; rank never changes
 ```
 
-Delete `coherence_audit.py` and its side-car and the pipeline still runs, producing the v0.3
-report. If removing it breaks anything downstream or changes a rank, the implementation is wrong
+Delete `coherence_audit.py` and its side-car and the pipeline still runs, producing the
+pre-overlay report. If removing it breaks anything downstream or changes a rank, the implementation is wrong
 — that is the overlay's acceptance test, not a nice-to-have.
 
 ### Where the notice sits (v0.33)
 
 ```
-3a     build_rankings.py  ──► rankings.json    ── rank order + composite
+3a     build_rankings.py  ──► rankings.json    ── rank order (band, then Q'')
 3a-bis coherence_audit.py ──► coherence.json   ── tier may drop one level
        │
        │   READ-ONLY below this line
@@ -284,8 +285,8 @@ written — is the overlay's input, and anything placed there can move a display
 ├── references/                       # Methodology readers (no executable code)
 │   ├── methodology.md                # What the skill does and does not do
 │   ├── quality_screen.md             # Screen criteria and rationale
-│   ├── crowding_signal.md            # Signal formula (A2 days-to-liquidate, A3 diversity,
-│   │                                 #   v0.32 G1 currency gate, G2 thin-exposure warning)
+│   ├── consensus_signal.md           # v0.4: votes, fund independence (N_eff), bands, limits
+│   ├── crowding_signal.md            # Exit liquidity and the currency gate (v0.4 retitle)
 │   ├── providers.md                  # Provider routing, EDGAR contract (B1 email), confidence
 │   ├── honest_framing.md             # Framing template for Layer 3 (bias stated once)
 │   ├── macro_appendix.md             # v0.3 macro/expectations appendices + source gate
@@ -302,12 +303,14 @@ written — is the overlay's input, and anything placed there can move a display
 │   ├── fetch_fundamentals.py         # Stage 2b: EDGAR + yfinance → fundamentals.json
 │   ├── compute_scores.py
 │   ├── aggregate_funds.py
-│   ├── build_rankings.py             # Sole author of composite + rank order
+│   ├── benchmark_weights.py          # v0.4 Stage 2f-i: benchmark proxy top-10 weights
+│   ├── consensus_signal.py           # v0.4 Stage 2f-ii: consensus signal v2
+│   ├── build_rankings.py             # Sole author of rank: (band, Q'', c_share, ticker)
 │   ├── etf_relative_strength.py      # v0.31 E2.3: RS vs SPY, fixed 3M/6M/12M windows
 │   ├── coherence_audit.py            # v0.31 Stage 3a-bis: the overlay → coherence.json
 │   ├── build_report.py               # + v0.33 notice placement (after appendices, pre-method)
 │   ├── quality_screen.py             # + v0.31 post-screen industry census (M1 scope)
-│   ├── crowding_signal.py            # A2 days-to-liquidate (v0.32: USD-only AUM) + A3 diversity
+│   ├── crowding_signal.py            # v0.4: exit liquidity only (USD-only AUM since v0.32)
 │   ├── check_checkpoints.py          # v0.3 D4 gate + v0.31 overlay + v0.32 sections
 │   │                                 #   + v0.33 Part H notice content rules
 │   ├── layer1_report.py              # v0.32 G4: consolidated input-review block
@@ -322,10 +325,13 @@ written — is the overlay's input, and anything placed there can move a display
 │   │   ├── registry.py               # Provider routing + field-level fallback (v0.34)
 │   │   ├── resolver.py               # Conflict resolution + data_provenance log
 │   │   ├── names.py                  # v0.34: company-name normalisation for name-only rows
+│   │   ├── benchmark_map.py          # v0.4: printed benchmark -> proxy ETF (Appendix B)
 │   │   └── industry_map.py           # Industry buckets + v0.31 industry → sector-ETF column
 │   └── dev/                          # Maintainer tools — never imported by the pipeline
 │       ├── edgar_smoke.py            # Which SEC endpoints answer (needs a contact email)
-│       └── record_fixtures.py        # Records trimmed SEC fixtures + a concept census
+│       ├── record_fixtures.py        # Records trimmed SEC fixtures + a concept census
+│       ├── legacy_v033.py            # The retired v0.33 composite, for comparison only
+│       └── compare_rankings.py       # v0.33 vs v0.4 rankings of one work dir, side by side
 └── tests/                            # Offline stdlib-unittest suite (no network)
     ├── test_smoke.py                 # v0.2–v0.33 regression tests
     ├── test_v04_*.py                 # one module per v0.4 work-package group
@@ -398,19 +404,30 @@ python scripts/compute_scores.py \
   --screen /home/claude/work/screen_results.json \
   --out /home/claude/work/scores_per_stock.json
 
-# Stage 2f — consensus-with-crowding-discount signal
-# (v0.3: --holdings adds fund AUM + style for days-to-liquidate / diversity;
-#  --fundamentals adds per-ticker ADV. Both optional — absent => NAV-only, unweighted.)
+# Stage 2f-i (v0.4) — benchmark proxy top-10 weights per fund
+# (--replay <file> reads a saved {etf: {ticker: weight}} instead of the network)
+python scripts/benchmark_weights.py \
+  --holdings /home/claude/work/holdings.json \
+  --out /home/claude/work/benchmark_weights.json
+
+# Stage 2f-ii (v0.4) — consensus signal v2: votes, fund independence, bands.
+# --vote-basis presence / --vote-floor none are for sensitivity runs only.
+python scripts/consensus_signal.py \
+  --holdings /home/claude/work/holdings.json \
+  --benchmark-weights /home/claude/work/benchmark_weights.json \
+  --out /home/claude/work/consensus.json
+
+# Stage 2f-iii — exit liquidity (days-to-liquidate, USD-reporting holders only)
 python scripts/crowding_signal.py \
   --overlap /home/claude/work/overlap.json \
   --holdings /home/claude/work/holdings.json \
   --fundamentals /home/claude/work/fundamentals.json \
   --out /home/claude/work/crowding_signals.json
 
-# Stage 3a — composite ranking (the ONLY writer of composite scores and rank order)
+# Stage 3a — the ranking (the ONLY writer of rank order): band, then Q''
 python scripts/build_rankings.py \
   --scores /home/claude/work/scores_per_stock.json \
-  --crowding /home/claude/work/crowding_signals.json \
+  --consensus /home/claude/work/consensus.json \
   --overlap /home/claude/work/overlap.json \
   --out /home/claude/work/rankings.json
 
@@ -428,15 +445,16 @@ python scripts/coherence_audit.py \
   --macro /home/claude/work/macro_factors.json \
   --sector-logic /home/claude/work/sector_logic.json \
   --etf /home/claude/work/etf_relative_strength.json \
+  --crowding /home/claude/work/crowding_signals.json \
   --out /home/claude/work/coherence.json
 
 # Stage 3d — Layer 3 report. Drop --coherence to get the pre-overlay (v0.3) tiers.
 python scripts/layer3_report.py \
   --rankings /home/claude/work/rankings.json \
-  --n-funds 8 \
   --framing /home/claude/work/honest_framing.txt \
   --rationale-dir /home/claude/work/rationale/ \
   --coherence /home/claude/work/coherence.json \
+  --crowding /home/claude/work/crowding_signals.json \
   --out /home/claude/work/layer3_ranked_advice.md
 
 # Macro gate — deterministic checkpoint review (v0.3 D4 + v0.31 overlay invariants
@@ -461,10 +479,19 @@ python -m unittest discover tests -v
 Offline, no network calls, no pytest dependency.
 
 Alongside the unit tests, the suite locks in the structural invariants each iteration
-depends on — that no FX-conversion machinery exists anywhere in `scripts/` (v0.32), and that
-no scoring stage reads the Important Notice (v0.33). Those are the acceptance tests for
-"excluded, never converted" and "outside every layer"; if either property is ever quietly
-broken, a grep-based test is what says so.
+depends on, as grep- and property-based tests that must never be deleted:
+
+| Test | Invariant |
+|---|---|
+| `TestNoFxConversion` | no FX-conversion machinery anywhere in `scripts/` (v0.32) |
+| `TestNoticeIsOutsideEveryScoringLayer` | no scoring stage reads the Important Notice (v0.33) |
+| `TestConsensusIgnoresStyle` | no LLM-inferred style label enters the consensus (v0.4, I9) |
+| `TestNoLegacyWeights` | the retired 50/50 weights live only under `scripts/dev/` (v0.4, I4) |
+| `TestRankingReadsNoMacro` | the ranking reads no macro, sector, ETF, overlay or crowding input (v0.4) |
+| `TestSingleYfinanceImport` | yfinance is imported in exactly one file (I11) |
+| `TestDeterministicRanking` | shuffled inputs give a byte-identical `rankings.json` (I10) |
+
+If one of those properties is ever quietly broken, a test is what says so.
 
 ---
 
@@ -476,8 +503,8 @@ The layered `.md` checkpoints, the overlay's audit trail, and a final English-on
 | File                              | Content                                                                      |
 | --------------------------------- | ---------------------------------------------------------------------------- |
 | `layer1_extraction.md`            | v0.32 — opens with the consolidated **input review** (rejections, reporting currency per fund + exit-liquidity exclusions, thin-US-exposure flags, Stage 0 advisories, style distribution), then per-fund extraction, universe size, out-of-scope |
-| `layer2_screening.md`             | Overlap matrix, quality screen, data quality, liquidity labels + currency exclusions + homogeneity + thin-exposure count |
-| `layer3_ranked_advice.md`         | Honest framing (bias once), top-15 watchlist cards, methodology disclosure   |
+| `layer2_screening.md`             | Overlap matrix, quality screen (incl. passed-but-unscored), data quality, consensus structure (N_eff, fund weights, floor, coverage), exit liquidity, currency exclusions, thin-exposure count |
+| `layer3_ranked_advice.md`         | Honest framing (stated once), up-to-15 watchlist cards, benchmark-anchored core holdings, methodology disclosure |
 | `macro_checkpoint.md`             | v0.3 — central-bank-anchored macro/sector view, per-sentence attribution     |
 | `expectations_checkpoint.md`      | v0.3 — per-stock best/avg/worst scenarios driven by the macro view           |
 | `appendix3_consensus_warning.md`  | v0.3 — over-consensus & false-theme warning + fund-style remediation         |
@@ -487,7 +514,7 @@ The layered `.md` checkpoints, the overlay's audit trail, and a final English-on
 
 All checkpoint files — including `coherence.json` — are copied to `/mnt/user-data/outputs`
 alongside the PDF (the container work dir is ephemeral and resets between sessions).
-`coherence.json` is shipped because keeping the qualitative judgment out of the composite is
+`coherence.json` is shipped because keeping the qualitative judgment out of the ranking is
 only worth something if a reader can check every demotion against the readings that produced it.
 
 Intermediate v0.31 working files (`macro_factors.json`, `sector_logic.json`,
@@ -530,7 +557,7 @@ v1 to v0.33 — is in [`CHANGELOG.md`](./CHANGELOG.md).
 4. **Sector-ETF proxy error (v0.31)**: an eleven-bucket industry map is coarser than a real sector classification, so a stock can be measured against an ETF that is only approximately its sector — a diversified conglomerate or an unusual ADR most of all. The mapping is deliberately conservative (`other` is left unmapped, producing "insufficient data" instead of a wrong proxy), but a *plausible-but-imprecise* bucket will still be used.
 5. **Uncalibrated overlay bands (v0.31)**: the thresholds separating "outperforming / inline / lagging" (±5pp) and "sharp divergence" (±20pp) are round numbers, not fitted parameters — there is no backtest in this tool to fit them against. They exist to separate decisive moves from noise. This is why the overlay is capped at a single tier and can only demote: a wrong band costs one display tier on one stock, never a re-ordering.
 6. **Structured macro fields are a lossy summary (v0.31)**: collapsing a central-bank corpus into one rate direction and one inflation direction discards nuance by design (regional divergence, forward guidance conditionality). The full narrative stays in `macro_checkpoint.md`; the structured fields exist only to make the coherence comparison mechanical and auditable.
-7. **Reduced exit-liquidity coverage on non-USD input sets (v0.32)**: excluding non-USD AUM is correct but not free — an input set dominated by HKD share classes yields mostly `NAV-only` crowding figures, i.e. the v0.2 pure-weight discount with no days-to-liquidate information. This is a *stated* gap rather than a distorted number, and the exclusion count is reported in Layer 1 and Layer 2, but the exit-crowdedness signal is genuinely weaker on such a run.
+7. **Reduced exit-liquidity coverage on non-USD input sets (v0.32)**: excluding non-USD AUM is correct but not free — an input set dominated by HKD share classes leaves most stocks with no days-to-liquidate figure (`no-liquidity-data`), so the overlay's exit-liquidity check rarely fires. This is a *stated* gap rather than a distorted number, and the exclusion count is reported in Layer 1 and Layer 2, but the check is genuinely weaker on such a run.
 8. **Currency normalisation depends on Stage 1a (v0.32)**: the gate reads the `currency` the LLM extracted. A factsheet that states its reporting currency only in a footnote, a share-class table, or an image the text layer does not carry will come through as `null` and be excluded — the safe direction, but a false exclusion. Only unambiguous spellings are mapped (`US$`, `HK$`, `Euro`, `RMB`); a bare `$` or `¥` resolves to `null` rather than a guess.
 9. **The regional advisory is a title heuristic (v0.32)**: it reads the first few lines of page one, keeping lines that carry a fund-type word and no percentage figure. A factsheet whose title sits in an image, or whose text layer scrambles the first page, produces no advisory; a fund-of-funds row named after a region could produce a spurious one. Neither outcome affects the pipeline — Stage 1c is still the only thing that rejects a fund.
 10. **Group attribution is coarser than the company (v0.33)**: the notice attributes each stock to its industry bucket (or a named theme where the evidence supports one) and then describes *that group's* environment. A semiconductor name with little AI exposure still inherits the AI-infrastructure expectations reading, and a diversified company inherits whichever bucket it landed in. This is the deliberate trade: the precise alternative — a per-company sentiment claim — cannot clear the two-source gate and is the highest fabrication risk in the design.

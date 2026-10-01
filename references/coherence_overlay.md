@@ -1,8 +1,8 @@
-# Coherence Overlay Reference (v0.31)
+# Coherence Overlay Reference (v0.31, amended by v0.4)
 
-This file specifies the v0.31 coherence overlay — Stage 3a-bis plus the two
-amendments it makes to v0.3. It is a reader for Claude and humans. The
-deterministic half lives in `scripts/coherence_audit.py` and
+This file specifies the coherence overlay — Stage 3a-bis plus the two amendments it
+made to v0.3, and the exit-liquidity risk check v0.4 adds to it. It is a reader for
+Claude and humans. The deterministic half lives in `scripts/coherence_audit.py` and
 `scripts/etf_relative_strength.py`; the qualitative inputs are written by Claude.
 
 > **Governing principle: the overlay may only demote.** If it could promote,
@@ -21,7 +21,8 @@ deterministic half lives in `scripts/coherence_audit.py` and
    v0.2, so there is no mechanism to validate "15% vs 25%". Writing a number
    down would be exactly the false precision the honest-framing policy exists to
    prevent.
-2. **It would break the locked 50/50 split.**
+2. **It would put a weighted axis back into a ranking that has none** (v0.4: the ranking
+   is an ordering of keys — consensus band, then quality — with no weight written down).
 
 What the overlay *is* instead: v0.3 §0 premise 2 ("uncertainty is a quality
 defect") extended to a new axis. If the macro picture, the sector logic and the
@@ -69,10 +70,11 @@ could never be separated out again.
 
 - **Position:** after 3a (`build_rankings.py`), before 3b (rationale cards).
 - **Inputs (read-only):** `rankings.json`, `macro_factors.json`,
-  `sector_logic.json`, `etf_relative_strength.json`.
+  `sector_logic.json`, `etf_relative_strength.json`, and (v0.4, optional)
+  `crowding_signals.json` for the exit-liquidity check.
 - **Output:** the side-car `coherence.json` — one record per ranked stock.
-- **Hard constraint:** `rankings.json` is **not modified**. Composite scores,
-  `Q''`, `C` and rank order are written by 3a and never rewritten.
+- **Hard constraint:** `rankings.json` is **not modified**. Bands, `Q''`,
+  consensus shares and rank order are written by 3a and never rewritten.
 - **Reversibility test (must hold):** deleting 3a-bis and `coherence.json`
   leaves the pipeline runnable and produces the v0.3 report minus the coherence
   annotations. If removing the overlay breaks anything downstream or changes
@@ -231,7 +233,37 @@ never implies agreement that was not tested.
 
 `check_checkpoints.py` verifies these mechanically whenever `coherence.json` is
 present: `tier_delta ∈ {0, −1}`, `tier` follows from `base_tier + delta`, no
-promotion, and no demotion without a named contradiction.
+promotion, no demotion without a named contradiction or risk, and (v0.4) no
+contradiction or risk without a demotion.
+
+---
+
+## The exit-liquidity check (v0.4)
+
+Crowding left the rank in v0.4 (DEC-4): position size no longer lowers a stock's
+rank. It returns here, as a **risk** rather than a contradiction. When
+`--crowding crowding_signals.json` is supplied, each record carries a fourth
+verdict, `exit_liquidity`:
+
+| Condition | Verdict | Effect |
+|---|---|---|
+| `is_exit_crowded` — the holders that report AUM in USD would need ≥ 10 trading days of average volume to sell together | `risk` | demote one tier, statement names the days and the USD-only basis |
+| no days-to-liquidate figure (no USD-reported AUM among the holders, or no ADV) | `insufficient_data` | none |
+| otherwise | `coherent` | none |
+
+- **Demotion rule:** `tier_delta = −1` if **any** verdict is a contradiction or a
+  risk. The cap stays one tier: a stock with a contradiction and a risk drops one
+  tier, not two. Both are named on the card.
+- **A missing liquidity figure is reported in its own verdict**, not added to the
+  "insufficient data" list of the three readings, so it never rewrites the card's
+  coherence commentary.
+- **The 10-day line is uncalibrated** (a round number separating days from weeks);
+  it is labelled as such wherever it appears.
+- **Optional.** Without the crowding file the check does not run, and every record
+  is exactly what it was without it — the overlay stays removable piece by piece.
+- Only the holders that report AUM in USD are counted (the v0.32 currency gate).
+  Seven to eleven funds cannot crowd a US large cap by themselves; the check flags
+  what these holders alone would take to unwind. See `crowding_signal.md`.
 
 ---
 

@@ -18,6 +18,37 @@ v0.34, below. Entries for the consensus signal (Phase B), the token and runtime 
 - **The input rule changed:** the 7–11 fund factsheets (the fund sales documents) are
   uploaded as **one `.zip`**, not as individual PDFs.
 
+### Consensus signal v2 (Phase B)
+
+- **A vote is a choice, not a holding (DEC-1, F4).** A fund votes for a stock it holds above
+  the common disclosure floor and, where its benchmark's proxy top-10 is known, at or above
+  the stock's benchmark weight capped at the 10% single-issuer limit. A position at or below
+  benchmark weight is "benchmark-anchored" — no vote. The factsheet's `benchmark` is
+  recorded as printed (never inferred) and mapped to a proxy ETF (`benchmark_map.py`).
+- **The common vote floor (F4).** The largest smallest-disclosed weight among the funds; a
+  position below it cannot vote, because not every fund could have disclosed it.
+- **Funds are weighted by independence (F5).** Similarity is the cosine of the funds' US
+  holdings; each fund's weight is `1 / sum of its similarities`; `N_eff_run` says how many
+  independent opinions the run holds. Identical share classes of one fund are merged first.
+- **Consensus rises with agreement (F1, F6).** The consensus share is the weighted share of
+  opinion voting for a stock, so adding a vote can only raise it. Bands: majority (≥ ½ and at
+  least two voting funds), plural, single. Style labels no longer enter it (F3, I9).
+- **The ranking is an ordering, not a weighted sum (DEC-2).** (band, −Q'', −c_share, ticker);
+  up to 15 names; the 50/50 composite survives only in `scripts/dev/legacy_v033.py`.
+  `few_eligible` warns when fewer than five names have a vote.
+- **The benchmark-anchored core (DEC-3)** — names most funds hold only at benchmark weight —
+  is listed in its own section, not ranked.
+- **Crowding leaves the rank (DEC-4, F2).** `crowding_signal.py` keeps only exit liquidity;
+  days-to-liquidate ≥ 10 (USD-reporting holders, an uncalibrated line) is a risk check in the
+  coherence overlay that demotes one tier like a contradiction.
+- **Reports.** Layer 1: benchmarks, disclosure depth, the floor. Layer 2: "Consensus
+  structure" and "Exit liquidity". Layer 3: the v0.4 card, the anchored-core section, an
+  explicit note when the overlay empties a tier's populated slice (F19). The checkpoint gate
+  requires the new sections.
+- **Docs.** `references/consensus_signal.md` (new); `crowding_signal.md` retitled "Exit
+  liquidity and the currency gate"; the overlay, methodology, framing and Appendix 3
+  references updated.
+
 ---
 
 ## v0.34 — corrections (2026-10-01)
