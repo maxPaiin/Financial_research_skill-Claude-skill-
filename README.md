@@ -43,6 +43,9 @@
 >   limit replaces a daily quota that never existed.
 > - **Runs on claude.ai and in Claude Code CLI**, with a phase runner that prints short
 >   summaries and a resume bundle (`work_bundle.zip`) so one run can span two usage windows.
+> - **Optional consensus flow.** Give it last period's `work_bundle.zip` and it asks whether
+>   the funds added to or trimmed each stock beyond price drift; a majority-consensus name
+>   that two or more funds are selling drops one display tier, with the reason on its card.
 > - **Unchanged:** 7–11 funds, US-listed equities only, no FX conversion anywhere, the
 >   two-source macro gate, the Important Notice and its invariants, English-only output and
 >   the verbatim disclaimer.
@@ -316,6 +319,7 @@ written — is the overlay's input, and anything placed there can move a display
 │   ├── aggregate_funds.py
 │   ├── benchmark_weights.py          # v0.4 Stage 2f-i: benchmark proxy top-10 weights
 │   ├── consensus_signal.py           # v0.4 Stage 2f-ii: consensus signal v2
+│   ├── consensus_flow.py             # v0.4 D2 (optional): drift-adjusted flow vs a prior snapshot
 │   ├── build_rankings.py             # Sole author of rank: (band, Q'', c_share, ticker)
 │   ├── etf_relative_strength.py      # v0.31 E2.3: RS vs SPY, fixed 3M/6M/12M windows
 │   ├── coherence_audit.py            # v0.31 Stage 3a-bis: the overlay → coherence.json
@@ -403,6 +407,17 @@ python scripts/run_phase.py status                  # what has run, what is stal
 
 `--vote-basis presence` / `--vote-floor none` on `p3` are sensitivity runs; `--replay-dir`
 runs a phase offline from recorded inputs.
+
+**Consensus flow (optional).** Keep each run's `work_bundle.zip`. Next period, pass it to `p4`
+and the overlay also checks whether a majority-consensus name is being sold beyond price drift:
+
+```bash
+python scripts/run_phase.py p4 --prior-holdings last_quarter/work_bundle.zip
+```
+
+The two snapshots are matched fund by fund on the share-class ISIN, else on the exact fund name;
+a fund's NAV prices its return only for a USD share class (otherwise its benchmark proxy ETF, else
+SPY). Without `--prior-holdings` the check does not run and nothing changes.
 
 **Resuming a run (v0.4).** Every phase also refreshes `work_bundle.zip` in the outputs
 directory — the work directory's JSON, Markdown and text checkpoints plus the rationale cards,
@@ -595,7 +610,8 @@ only worth something if a reader can check every demotion against the readings t
 Intermediate v0.31 working files (`macro_factors.json`, `sector_logic.json`,
 `etf_relative_strength.json`) stay in the work dir; they are inputs to the audit, and the audit
 itself is what gets shipped as a checkpoint. They do travel inside `work_bundle.zip`, so a
-resumed run has everything it needs.
+resumed run has everything it needs. The same holds for `consensus_flow.json` (v0.4, written only
+when a prior snapshot is supplied).
 
 ---
 
@@ -642,3 +658,4 @@ v1 to v0.33 — is in [`CHANGELOG.md`](./CHANGELOG.md).
 13. **Square brackets are reserved inside the notice (v0.33)**: the two-source check reads every `[...]` in `important_notice_checkpoint.md` as a citation, so a markdown link or a bracketed aside is flagged as a single-source citation. The convention is documented in `references/important_notice.md`; the trade is a rigid notation in exchange for a mechanical C2 check on the section that most needs one.
 14. **Name-only rows for foreign issuers are excluded and disclosed (v0.34)**: a factsheet that lists a holding by name alone — "台積電", "Taiwan Semiconductor Manufacturing" — does not say whether the fund holds the US ADR or the home-market share. For a foreign private issuer (20-F / 40-F filer) the row is kept only with evidence: an ADR marker in the name or a US ISIN. Without it the row is excluded as `ambiguous_listing` and listed in Layer 1's input review. The error is one-sided by design — a possible false exclusion, never a false inclusion — and an issuer whose filer type cannot be determined is treated the same way.
 15. **A non-US ISIN alone never excludes a US-listed share (v0.34)**: the listing check reads the ticker first. Accenture, Medtronic and Chubb trade on the NYSE with Irish or Swiss ISINs; they are kept. Only on a name-only row of a foreign private issuer does a non-US ISIN decide (`non_us_listing`: the fund holds the home-market share).
+16. **Consensus flow sees net change between two snapshots only (v0.4)**: a position bought and sold again between two factsheets is invisible, and so is a trade smaller than the rounding both factsheets carry (half a reporting step each). Adjusted closes add dividends back into the stock's return, which can read as a small trim of a high-yielding stock in a fund that reports weights to 0.01pp. When a fund's own NAV cannot be used (no USD share class), its benchmark proxy ETF or SPY stands in for the fund's return, and the source is recorded per fund. The check demotes only a majority-band name that two or more funds trimmed — one noisy fund cannot trigger it.

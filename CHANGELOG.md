@@ -83,6 +83,32 @@ claude.ai and in Claude Code CLI (F18).
   1,222), the context-budget rules first, a "Stage → reference file to read now" table one level
   deep, and a Contents list in every reference longer than 100 lines. Tests enforce all four.
 
+
+### Consensus flow (Phase D)
+
+- **Schema (D1).** Stage 1a records the fund's share-class `fund_isin` and `nav_per_share` as
+  printed (C3 already extracted both); they survive the listing check and dedupe.
+- **Flow between two snapshots (D2).** `consensus_flow.py --prior-holdings` (an earlier run's
+  `holdings.json`, or its `work_bundle.zip`) matches funds on `fund_isin`, else on the exact
+  normalised name, and takes price drift out of each weight: `w* = w_prev(1 + r_i)/(1 + R_f)`.
+  `R_f` is the fund's NAV return only for a USD share class (I8); otherwise its benchmark proxy
+  ETF's, otherwise SPY's, and the source is recorded. Per stock: building, unwinding, mixed or
+  insufficient; names that entered or left a top-holdings list carry no sign. Wired into
+  `run_phase.py p4 --prior-holdings`.
+- **The overlay check (D3).** A majority-band name that the funds are unwinding is a
+  contradiction — one tier down under the same cap, named on the card. Any other band or flow
+  is coherent; no flow reading is insufficient data. Without the file the check does not run.
+  Layer 3 states the method only on runs where it ran.
+- **Deviation: the trade threshold covers both roundings.** The specification sets
+  `ε_f` = half the reporting step, and so does the code. But a trade compares two rounded
+  weights, so pure price drift can differ from `w*` by up to `ε_now + ε_prev·(1 + r_i)/(1 + R_f)`.
+  Example: 3.049% printed as 3.0%, drifting 1.64% to 3.099% printed as 3.1%, leaves a 0.0508pp
+  gap. That is above half a step but is only rounding. With a single ε, about a quarter of
+  untouched positions would read as trades (two uniform rounding errors differ by more than half
+  a step 25% of the time), so the specified test "pure drift produces 0 trades" could not hold.
+  The threshold is therefore the two-sided bound. A 5,000-case property test shows that pure
+  drift never crosses it.
+
 ---
 
 ## v0.34 — corrections (2026-10-01)

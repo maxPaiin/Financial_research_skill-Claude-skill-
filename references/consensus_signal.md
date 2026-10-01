@@ -198,6 +198,9 @@ which Layer 2 and Appendix 3 say in so many words.
 - **Price drift.** Weights drift with prices, so a position can cross the floor or its
   benchmark weight without a trade. That residual effect is disclosed in the methodology,
   not hidden in a continuous penalty.
+- **A snapshot, not a direction.** A band says who holds a stock at or above benchmark weight
+  now, not whether they are adding or selling. When an earlier snapshot is supplied, the
+  overlay's consensus-flow check reads direction (`coherence_overlay.md`); the rank never does.
 - **A small sample.** Seven to eleven funds; no statistical significance is claimed.
 
 ## 12. What the tests enforce

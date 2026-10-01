@@ -14,6 +14,12 @@ need 10 or more trading days of average volume to sell a position
 (crowding_signals.json `is_exit_crowded`), the verdict is `risk`, and a risk
 demotes exactly like a contradiction: one tier, never more, rank untouched.
 
+v0.4 (D3): a fifth, optional check — CONSENSUS FLOW. When an earlier factsheet
+snapshot was supplied (consensus_flow.json), a stock in the MAJORITY band that
+the funds are UNWINDING — at least two trimmed it beyond price drift, net of
+their independence weights — is a contradiction: the consensus the rank rests
+on is being sold. Everything else is coherent or insufficient data.
+
 WHAT IT MAY NOT DO (the invariants that make it non-destructive):
   * `rankings.json` is READ-ONLY. Composite scores, Q'', C and rank order are
     written by 3a and never rewritten here. This script's only output is the
@@ -47,6 +53,8 @@ Inputs:
   --crowding       crowding_signals.json (v0.4 B7) — days-to-liquidate per
                    ticker; absent -> the exit-liquidity check does not run and
                    every record is exactly what it was without it
+  --flow           consensus_flow.json (v0.4 D3) — absent -> the consensus-flow
+                   check does not run, likewise
   --out            coherence.json
 
 Every input except --rankings is optional; each absent input degrades the
@@ -61,7 +69,8 @@ Output schema — coherence.json:
      "factors": {"macro": {...}, "sector_logic": {...}, "etf": {...}},
      "verdicts": [{"pair": "macro_vs_sector", "verdict": "contradiction",
                    "statement": "..."}, ...,
-                  {"pair": "exit_liquidity", "verdict": "risk", "statement": "..."}],
+                  {"pair": "exit_liquidity", "verdict": "risk", "statement": "..."},
+                  {"pair": "consensus_flow", "verdict": "contradiction", "statement": "..."}],
      "contradictions": ["..."],
      "risks": ["..."],
      "divergence_flag": {"divergence": "negative", "explanation_required": true},
@@ -297,6 +306,24 @@ def verdict_exit_liquidity(signal: Optional[dict]) -> tuple[str, str]:
         "below the 10-day line.")
 
 
+# --- v0.4 D3: consensus flow --------------------------------------------------
+
+def verdict_consensus_flow(band: Optional[str], flow: Optional[dict]) -> tuple[str, str]:
+    """contradiction when a majority-consensus name is being unwound."""
+    state = (flow or {}).get("state")
+    if state in (None, "insufficient"):
+        return INSUFFICIENT, (
+            "Consensus flow: fewer than two funds disclose this stock in both factsheet "
+            "snapshots — no flow reading.")
+    n, added, trimmed = flow.get("n_comparable"), flow.get("n_added"), flow.get("n_trimmed")
+    counts = f"{added} added, {trimmed} trimmed beyond price drift, of {n} comparable funds"
+    if band == "majority" and state == "unwinding":
+        return CONTRADICTION, (
+            f"Consensus flow: a majority consensus that the funds are unwinding ({counts}) — "
+            "the agreement the rank rests on is being sold.")
+    return COHERENT, f"Consensus flow: {state} ({counts})."
+
+
 # --- E3.2 adjustment -------------------------------------------------------
 
 def demote(base_tier: str, delta: int) -> str:
@@ -326,11 +353,13 @@ def audit_stock(
     sector_logic: dict,
     etf_data: dict,
     crowding: Optional[dict] = None,
+    flow: Optional[dict] = None,
 ) -> dict:
     """Produce one coherence record for one ranked stock. Pure function.
 
     `crowding` maps ticker -> crowding_signals.json row; None means the
     exit-liquidity check did not run (the record then carries no such verdict).
+    `flow` maps ticker -> consensus_flow.json stock row, with the same rule.
     """
     ticker = row.get("ticker")
     rank = int(row.get("rank") or 0)
@@ -353,6 +382,9 @@ def audit_stock(
     ]
     if crowding is not None:
         pairs.append(("exit_liquidity", verdict_exit_liquidity(crowding.get(ticker or ""))))
+    if flow is not None:
+        pairs.append(("consensus_flow",
+                      verdict_consensus_flow(row.get("band"), flow.get(ticker or ""))))
     verdicts = [
         {"pair": name, "verdict": verdict, "statement": statement}
         for name, (verdict, statement) in pairs
@@ -469,17 +501,24 @@ def audit(
     sector_logic: Optional[dict],
     etf_data: Optional[dict],
     crowding: Optional[dict] = None,
+    flow: Optional[dict] = None,
 ) -> dict:
     by_ticker = ({r["ticker"]: r for r in crowding.get("signals", []) if r.get("ticker")}
                  if isinstance(crowding, dict) else None)
+    flow_by_ticker = ({r["ticker"]: r for r in flow.get("stocks", []) if r.get("ticker")}
+                      if isinstance(flow, dict) else None)
     records = [
-        audit_stock(row, macro, sector_logic or {}, etf_data or {}, by_ticker)
+        audit_stock(row, macro, sector_logic or {}, etf_data or {}, by_ticker, flow_by_ticker)
         for row in rankings.get("ranked", [])
     ]
+    flow_contradictions = sum(
+        1 for r in records for v in r["verdicts"]
+        if v["pair"] == "consensus_flow" and v["verdict"] == CONTRADICTION)
     return {
         "generated": date.today().isoformat(),
         "overlay": "coherence overlay (demotion-only, capped at one tier)"
-                   + ("; exit-liquidity risk check" if by_ticker is not None else ""),
+                   + ("; exit-liquidity risk check" if by_ticker is not None else "")
+                   + ("; consensus-flow check" if flow_by_ticker is not None else ""),
         "benchmark": (etf_data or {}).get("benchmark"),
         "windows": (etf_data or {}).get("windows"),
         "n_records": len(records),
@@ -487,6 +526,7 @@ def audit(
         "n_insufficient": sum(1 for r in records if r["insufficient_data"]),
         "n_divergence_flags": sum(1 for r in records if r["divergence_flag"]),
         "n_exit_liquidity_risks": sum(1 for r in records if r.get("risks")),
+        **({"n_flow_contradictions": flow_contradictions} if flow_by_ticker is not None else {}),
         "records": records,
     }
 
@@ -509,12 +549,14 @@ def main():
     ap.add_argument("--etf", help="etf_relative_strength.json from etf_relative_strength.py")
     ap.add_argument("--crowding", help="crowding_signals.json (v0.4 B7) — enables the "
                                        "exit-liquidity risk check")
+    ap.add_argument("--flow", help="consensus_flow.json (v0.4 D3) — enables the "
+                                   "consensus-flow check")
     ap.add_argument("--out", required=True, help="Output coherence.json (side-car)")
     args = ap.parse_args()
 
     rankings = json.loads(Path(args.rankings).read_text(encoding="utf-8"))
     out = audit(rankings, _load(args.macro), _load(args.sector_logic), _load(args.etf),
-                _load(args.crowding))
+                _load(args.crowding), _load(args.flow))
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)

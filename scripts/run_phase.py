@@ -13,7 +13,7 @@ and a run costs one tool call per phase instead of one per stage (F17).
   p4  3a build_rankings · 3a-bis-i etf_relative_strength
       · (D2, only with --prior-holdings) consensus_flow
   —   Claude: M1 + M1b, scoped to the ranked names' industries
-  p5  3a-bis coherence_audit
+  p5  3a-bis coherence_audit (+ --flow when consensus_flow.json was written)
   —   Claude: 3b cards, 3c framing, M2, M3, H1
   p6  3d layer3_report · Mg check_checkpoints · 4 build_report
 
@@ -30,7 +30,7 @@ Options (stored in <work>/run_config.json and reused by later phases):
   --asof YYYY-MM-DD   request date for fundamentals (p3)
   --max-files N       Stage 0 upper bound, measurement runs only (p1)
   --prior-holdings P  an earlier run's holdings.json or work_bundle.zip (p4, D2):
-                      consensus flow between the two snapshots
+                      consensus flow between the two snapshots, checked at p5
   --replay-dir DIR    offline run: DIR/sec_exchange.json, DIR/edgar_cache/,
                       DIR/yfinance/, DIR/benchmark_top_holdings.json, DIR/prices.json
   --work-dir / --outputs-dir   override paths.py for this run
@@ -335,8 +335,8 @@ def _consensus_flow(run: Run, bands: dict[str, str]) -> list[str]:
     unwound = [s["ticker"] for s in flow.get("stocks", [])
                if s.get("state") == "unwinding" and bands.get(s["ticker"]) == "majority"]
     if unwound:
-        lines += [f"  majority band being unwound: "
-                  f"{', '.join(unwound)}"]
+        lines += ["  majority band being unwound (overlay contradiction at p5): "
+                  + ", ".join(unwound)]
     excluded = flow.get("excluded_funds") or []
     if excluded:
         lines += ["  excluded: " + "; ".join(f"{e['fund_id']} ({e['reason']})"
@@ -353,12 +353,16 @@ def phase_p5(run: Run) -> list[str]:
                        ("--crowding", "crowding_signals.json")):
         if w(name).exists():
             argv += [flag, w(name)]
+    if run.config.get("prior_holdings") and w("consensus_flow.json").exists():
+        argv += ["--flow", w("consensus_flow.json")]
     run.script("3a-bis", "coherence_audit.py", *argv)
     coh = run.read("coherence.json")
     missing = [n for n in ("macro_factors.json", "sector_logic.json") if not w(n).exists()]
     lines = [f"Coherence: {coh.get('n_demoted', 0)} demoted (rank unchanged), "
              f"{coh.get('n_exit_liquidity_risks', 0)} exit-liquidity risk(s), "
-             f"{coh.get('n_insufficient', 0)} with insufficient data"]
+             + (f"{coh['n_flow_contradictions']} consensus-flow contradiction(s), "
+                if "n_flow_contradictions" in coh else "")
+             + f"{coh.get('n_insufficient', 0)} with insufficient data"]
     for r in coh.get("records", []):
         if r.get("tier_delta", 0) < 0:
             lines.append(f"  #{r['rank']} {r['ticker']}: {r['base_tier']}->{r['tier']}")
@@ -409,7 +413,7 @@ PHASE_INPUTS = {
     "p3": ["holdings.json"],
     "p4": ["scores_per_stock.json", "consensus.json", "overlap.json"],
     "p5": ["rankings.json", "macro_factors.json", "sector_logic.json",
-           "etf_relative_strength.json", "crowding_signals.json"],
+           "etf_relative_strength.json", "crowding_signals.json", "consensus_flow.json"],
     "p6": ["rankings.json", "coherence.json", "honest_framing.txt"],
 }
 

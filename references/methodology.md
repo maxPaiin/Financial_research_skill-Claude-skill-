@@ -187,6 +187,11 @@ format. Every correction and the evidence behind it is in `CHANGELOG.md`.
   so once.
 - **The anchored core is shown, not hidden.** Names every fund holds only at benchmark weight
   are listed in their own section — they are what the index holds, not what the managers chose.
+- **Direction is checked, never scored (optional).** Given an earlier snapshot of the same
+  funds, the overlay asks whether a majority-consensus name is being sold beyond price drift
+  and rounding. If it is, the stock drops one tier with the reason named; the rank is unchanged.
+  A non-USD share class never prices the fund's return from its NAV, because that would mix in
+  currency moves.
 
 ## What the skill is NOT
 

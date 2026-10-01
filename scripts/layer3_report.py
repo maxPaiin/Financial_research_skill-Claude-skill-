@@ -63,6 +63,10 @@ _METHODOLOGY = """## Methodology disclosure
 - This is a filter and ranking tool, not an alpha-generation or portfolio construction tool
 """
 
+# v0.4 D3: emitted only when the consensus-flow check ran (coherence.json says so).
+_FLOW_METHODOLOGY = """
+- **Consensus flow (v0.4, this run)**: an earlier factsheet snapshot of the same funds was supplied, so the overlay also asked whether each fund's weights moved more than price drift and weight rounding explain. A stock in the majority band that two or more funds trimmed beyond both is a contradiction — the agreement its rank rests on is being sold — and drops one tier under the same cap. A fund's own NAV prices its return only for a USD share class; otherwise its benchmark proxy ETF or SPY does. Two snapshots show net change only; the rank never reads the flow."""
+
 # v0.31 (E3.3 / E4): stated ONCE here, never repeated per card. Only emitted
 # when the overlay actually ran — a report that did not run the audit must not
 # claim it did.
@@ -290,7 +294,9 @@ def build_layer3_md(
         n_funds=n_funds,
         n_eff_run=n_eff if isinstance(n_eff, (int, float)) else 0.0,
         floor_text=f"{floor:.1%} this run" if isinstance(floor, (int, float)) else "off this run",
-        coherence_methodology=_COHERENCE_METHODOLOGY if by_ticker else "",
+        coherence_methodology=(_COHERENCE_METHODOLOGY if by_ticker else "")
+        + (_FLOW_METHODOLOGY if by_ticker and "n_flow_contradictions" in (coherence or {})
+           else ""),
     )]
 
     # Disclaimer

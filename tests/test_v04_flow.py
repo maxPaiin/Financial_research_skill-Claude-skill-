@@ -1,10 +1,11 @@
 """
-v0.4 D1–D2 — consensus flow: between two factsheets, did the funds add to a
+v0.4 D1–D3 — consensus flow: between two factsheets, did the funds add to a
 stock or trim it, once price drift and rounding are taken out?
 
 Pure drift is never a trade; one manager's trim registers as a trim; the
 rounding step is detected per fund; a non-USD share class never prices R_f
-from its NAV (I8); without a comparable prior snapshot there is no reading.
+from its NAV (I8); without a comparable prior snapshot the overlay check is
+insufficient and no tier moves.
 
     python -m unittest tests.test_v04_flow -v
 """
@@ -26,6 +27,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT / "scripts"))
 sys.path.insert(0, str(_REPO_ROOT / "tests"))
 
+from coherence_audit import audit  # noqa: E402
 from consensus_flow import (  # noqa: E402
     compute, flow_state, load_prior, match_funds, reporting_step, row_signal,
 )
@@ -232,13 +234,25 @@ class TestMatching(unittest.TestCase):
         self.assertEqual(_stock(out, "AAA")["state"], "insufficient")
 
 
-class TestNoPriorSnapshot(unittest.TestCase):
-    def test_no_comparable_fund_means_no_flow_reading(self):
+class TestNoPriorSnapshotMovesNothing(unittest.TestCase):
+    def test_flow_check_is_insufficient_and_no_tier_changes(self):
         cur = [_fund(f, {"AAA": 0.05}, D1) for f in ("F1", "F2")]
         flow = compute({"funds": cur}, {"funds": [_fund("X", {}, D0, name="Other")]},
                        _consensus("F1", "F2"), None, _fetch(_flat("AAA")))
         self.assertEqual((flow["n_comparable_funds"], flow["stocks"]), (0, []))
-        self.assertEqual([e["fund_id"] for e in flow["excluded_funds"]], ["F1", "F2"])
+        rankings = {"ranked": [{"ticker": "AAA", "rank": 1, "tier": "A", "band": "majority",
+                                "industry": "technology"},
+                               {"ticker": "BBB", "rank": 7, "tier": "B", "band": "plural",
+                                "industry": "technology"}]}
+        with_flow, without = audit(rankings, None, None, None, flow=flow), \
+            audit(rankings, None, None, None)
+        self.assertEqual([r["tier"] for r in with_flow["records"]],
+                         [r["tier"] for r in without["records"]])
+        for r in with_flow["records"]:
+            flow_v = [v for v in r["verdicts"] if v["pair"] == "consensus_flow"]
+            self.assertEqual([v["verdict"] for v in flow_v], ["insufficient_data"])
+        self.assertEqual(with_flow["n_flow_contradictions"], 0)
+
 
 class TestPriorFromABundle(unittest.TestCase):
     def test_a_work_bundle_supplies_its_holdings(self):
@@ -257,6 +271,20 @@ class TestPriorFromABundle(unittest.TestCase):
                 load_prior(Path(tmp) / "other.zip")
 
 
+class TestLayer3StatesTheFlowOnlyWhenItRan(unittest.TestCase):
+    def test_flow_methodology_is_conditional_and_on_its_own_line(self):
+        from layer3_report import build_layer3_md
+        rk = {"ranked": [{"rank": 1, "tier": "A", "ticker": "AAA", "band": "majority",
+                          "c_share": 0.6, "opinions": 1.2, "n_votes": 2, "n_holders": 3,
+                          "industry": "technology"}],
+              "n_funds": 3, "n_eff_run": 2.0, "vote_floor": 0.02, "n_eligible": 1}
+        coh = {"records": [{"ticker": "AAA", "rank": 1, "base_tier": "A", "tier": "A",
+                            "tier_delta": 0, "commentary": "agree."}]}
+        ran = build_layer3_md(rk, 3, "Framing.", {}, {**coh, "n_flow_contradictions": 0})
+        self.assertIn("\n- **Consensus flow (v0.4, this run)**", ran)
+        self.assertNotIn("Consensus flow (v0.4", build_layer3_md(rk, 3, "Framing.", {}, coh))
+
+
 class TestTheRankNeverReadsFlow(unittest.TestCase):
     def test_build_rankings_names_no_flow_input(self):
         text = (_REPO_ROOT / "scripts" / "build_rankings.py").read_text(encoding="utf-8")
@@ -265,7 +293,7 @@ class TestTheRankNeverReadsFlow(unittest.TestCase):
 
 
 class TestRunnerWithAPriorSnapshot(unittest.TestCase):
-    """D1 schema through p2, D2 at p4 — offline, on the runner fixtures."""
+    """D1 schema through p2, D2 at p4, D3 at p5 — offline, on the runner fixtures."""
 
     def setUp(self):
         import runner_fixtures
@@ -293,7 +321,7 @@ class TestRunnerWithAPriorSnapshot(unittest.TestCase):
                                    "--asof", "2026-10-01"])
         return code, out.getvalue(), err.getvalue()
 
-    def test_a_majority_name_being_unwound_is_reported_at_p4(self):
+    def test_a_majority_name_being_unwound_is_demoted_one_tier(self):
         for phase in ("p2", "p3"):
             code, _, err = self._phase(phase)
             self.assertEqual(code, 0, err)
@@ -315,13 +343,20 @@ class TestRunnerWithAPriorSnapshot(unittest.TestCase):
         code, out, err = self._phase("p4", "--prior-holdings", str(prior_path))
         self.assertEqual(code, 0, err)
         self.assertIn("Consensus flow: 7 of 7 funds comparable", out)
-        self.assertIn("majority band being unwound: AVGO", out)
+        self.assertIn("majority band being unwound (overlay contradiction at p5): AVGO", out)
         flow = json.loads((self.work / "consensus_flow.json").read_text())
         avgo = _stock(flow, "AVGO")
         self.assertEqual((avgo["state"], avgo["n_trimmed"]), ("unwinding", 2))
         self.assertTrue(all(f["r_fund_source"] == "nav_usd" and f["matched_on"] == "fund_isin"
                             for f in flow["funds"]))
 
+        code, out, err = self._phase("p5")
+        self.assertEqual(code, 0, err)
+        self.assertIn("1 consensus-flow contradiction(s)", out)
+        coherence = json.loads((self.work / "coherence.json").read_text())
+        rec = next(r for r in coherence["records"] if r["ticker"] == "AVGO")
+        self.assertEqual((rec["rank"], rec["tier_delta"]), (1, -1))
+        self.assertTrue(any("unwinding" in c for c in rec["contradictions"]))
         cfg = json.loads((self.work / "run_config.json").read_text())
         self.assertEqual(Path(cfg["prior_holdings"]), prior_path.resolve())
 

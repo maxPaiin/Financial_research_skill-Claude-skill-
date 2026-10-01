@@ -1,9 +1,11 @@
 """
-v0.4 B7 (+ D3 later) — the coherence overlay's exit-liquidity risk check.
+v0.4 B7 + D3 — the coherence overlay's exit-liquidity risk check and its
+consensus-flow check.
 
 A risk demotes exactly like a contradiction: one tier, never more, rank
-untouched, rankings.json read-only. Without a crowding file the check does
-not run and every record is what it was before (I3).
+untouched, rankings.json read-only. A majority-consensus name that the funds
+are unwinding is a contradiction (D3). Without a crowding or flow file the
+check does not run and every record is what it was before (I3).
 
     python -m unittest tests.test_v04_overlay -v
 """
@@ -92,6 +94,70 @@ class TestExitLiquidityCheck(unittest.TestCase):
         self.assertTrue(all("risks" not in r for r in b["records"]))
         self.assertTrue(all(v["pair"] != "exit_liquidity"
                             for r in b["records"] for v in r["verdicts"]))
+
+
+def _flow(state, added=0, trimmed=2, n=3):
+    return {"AAA": {"ticker": "AAA", "state": state, "n_comparable": n, "n_added": added,
+                    "n_trimmed": trimmed}}
+
+
+class TestConsensusFlowCheck(unittest.TestCase):
+    """D3: majority band + unwinding -> contradiction; everything else is not."""
+
+    def _rec(self, band, flow, crowding=None):
+        return audit_stock({**_row(), "band": band}, NEUTRAL_MACRO, EXPANSIONARY, ETF,
+                           crowding, flow)
+
+    def _flow_verdict(self, rec):
+        return next(v for v in rec["verdicts"] if v["pair"] == "consensus_flow")
+
+    def test_a_majority_being_unwound_is_demoted_one_tier(self):
+        rec = self._rec("majority", _flow("unwinding"))
+        self.assertEqual(self._flow_verdict(rec)["verdict"], "contradiction")
+        self.assertEqual((rec["tier_delta"], rec["tier"], rec["rank"]), (-1, "B", 2))
+        self.assertIn("0 added, 2 trimmed beyond price drift, of 3 comparable funds",
+                      rec["contradictions"][0])
+        self.assertIn("demoted A->B", rec["commentary"])
+
+    def test_other_combinations_never_demote(self):
+        for band, state in (("plural", "unwinding"), ("single", "unwinding"),
+                            ("majority", "building"), ("majority", "mixed")):
+            with self.subTest(band=band, state=state):
+                rec = self._rec(band, _flow(state))
+                self.assertEqual(self._flow_verdict(rec)["verdict"], "coherent")
+                self.assertEqual(rec["tier_delta"], 0)
+
+    def test_no_flow_reading_is_insufficient_never_a_verdict(self):
+        for flow in (_flow("insufficient"), {}):
+            rec = self._rec("majority", flow)
+            self.assertEqual(self._flow_verdict(rec)["verdict"], "insufficient_data")
+            self.assertEqual(rec["tier_delta"], 0)
+            self.assertEqual(rec["insufficient_data"], [])     # its own verdict, not a gap
+
+    def test_flow_plus_exit_risk_is_still_one_tier(self):
+        rec = self._rec("majority", _flow("unwinding"), _sig(14.2, True))
+        self.assertEqual((rec["tier_delta"], rec["tier"]), (-1, "B"))
+        self.assertEqual((len(rec["contradictions"]), len(rec["risks"])), (1, 1))
+
+    def test_without_a_flow_file_the_records_are_unchanged(self):
+        rankings = {"ranked": [{**_row(1), "band": "majority"}]}
+        before = audit(rankings, NEUTRAL_MACRO, EXPANSIONARY, ETF)
+        self.assertNotIn("n_flow_contradictions", before)
+        self.assertFalse(any(v["pair"] == "consensus_flow"
+                             for v in before["records"][0]["verdicts"]))
+        with_flow = audit(rankings, NEUTRAL_MACRO, EXPANSIONARY, ETF,
+                          flow={"stocks": [{"ticker": "AAA", "state": "unwinding",
+                                            "n_comparable": 3, "n_added": 0, "n_trimmed": 2}]})
+        self.assertEqual(with_flow["n_flow_contradictions"], 1)
+        self.assertEqual(with_flow["records"][0]["tier"], "B")
+
+    def test_the_gate_accepts_a_flow_contradiction_demotion(self):
+        import check_checkpoints as cc
+        rec = self._rec("majority", _flow("unwinding"))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "coherence.json"
+            path.write_text(json.dumps({"records": [rec]}))
+            self.assertEqual(cc.check_coherence(path), [])
 
 
 class TestRankingsStayReadOnly(unittest.TestCase):

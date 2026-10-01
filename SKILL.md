@@ -73,6 +73,11 @@ a `work_bundle.zip`, run `bundle.py load <zip>` and continue from the phase it n
 `run_phase.py status` confirms) — one run can span two usage windows. The bundle never carries
 PDFs: if the Stage 1a review was unfinished, ask for the .zip again before rendering pages.
 
+**Consensus flow (optional, D2–D3).** If the user also supplies an earlier snapshot of the same funds
+— best the `work_bundle.zip` of last period's run, or its `holdings.json` — run `run_phase.py p4
+--prior-holdings <file>`; p5 then checks it. Earlier factsheet PDFs need their own p1–p2 in a separate
+`--work-dir` first. Never assemble a prior snapshot from memory or any other source.
+
 ### Stage → reference file to read now
 
 Every file sits one level below this one; nothing needs to be read in advance.
@@ -88,6 +93,7 @@ Every file sits one level below this one; nothing needs to be read in advance.
 | M1 | `references/macro_appendix.md` | "M1 — Macro fetch", "C2 — Source integrity" |
 | M1, M1b | `references/coherence_overlay.md` | "E2.1 Macro factors", "E2.2 Sector logic" |
 | 3a-bis (after p5) | `references/coherence_overlay.md` | "The verdict…", "The exit-liquidity check" |
+| D2–D3, a prior snapshot supplied | `references/coherence_overlay.md` | "The consensus-flow check" |
 | 3b | `references/coherence_overlay.md` | "Reporting the overlay" |
 | 3c | `references/honest_framing.md` | whole file |
 | M2 | `references/macro_appendix.md` | "C3 — Appendix 1+2" |
@@ -121,6 +127,7 @@ the work dir.
 | 2g | p3 | `layer2_report.py` | `layer2_screening.md` |
 | 3a | p4 | `build_rankings.py` | `rankings.json` — **sole author of rank**, up to 15 |
 | 3a-bis-i | p4 | `etf_relative_strength.py` | `etf_relative_strength.json` (RS vs SPY, 3M/6M/12M) |
+| D2 | p4 | `consensus_flow.py` (only with `--prior-holdings`) | `consensus_flow.json` (flow per stock) |
 | M1 | — | Claude + directed fetch | `macro_checkpoint.md`, `macro_factors.json` |
 | M1b | — | Claude | `sector_logic.json` |
 | 3a-bis | p5 | `coherence_audit.py` | `coherence.json` (`rankings.json` untouched) |
@@ -218,8 +225,9 @@ presence` and `p4`. Never switch silently.
 ### Stage 3a-bis — the coherence overlay
 
 It asks whether the macro read, the sector operating logic and the sector-relative price action
-tell the same story. A contradiction in any pair, or an exit-liquidity risk (days-to-liquidate
-≥ 10, DEC-4), demotes the stock **exactly one display tier**, and the card must name it.
+tell the same story. A contradiction in any pair, an exit-liquidity risk (days-to-liquidate
+≥ 10, DEC-4) or — with a prior snapshot — a majority-band name the funds are unwinding (D3) demotes
+the stock **exactly one display tier**, and the card must name it.
 **Demotion-only, one tier maximum, `rankings.json` read-only; deleting the stage returns the
 pre-overlay report.** Missing data → "insufficient data", tier unchanged.
 
@@ -278,6 +286,8 @@ second disclaimer.
   which.
 - `few_eligible` from 3a → tell the user; offer the `--vote-basis presence` rerun. No automatic
   fallback.
+- p4 lists funds excluded from the flow (no matching `fund_isin` or name, a prior `asof` that is
+  not earlier, no measurable return) → tell the user; their flow is insufficient, never a demotion.
 
 **Macro, overlay and notice**
 - A macro claim has only one primary-tier source → do NOT write it (hard gate).
@@ -318,6 +328,7 @@ WORK_DIR/                          (EPHEMERAL on claude.ai — resets between se
   stage0_validation.json                                                              (v0.32)
   candidates.json  candidates_summary.md  rationale/  honest_framing.txt              (v0.4)
   run_config.json  state.json                                                         (v0.4)
+  consensus_flow.json                                 (v0.4 D2, only with a prior snapshot)
 
 OUTPUTS_DIR/                       (USER-VISIBLE — downloadable)
   financial_research_report.pdf
@@ -349,6 +360,9 @@ it must NOT claim the work dir persists.
   ISIN alone never excludes a US-listed share.
 - **M1 and M1b run after 3a**, scoped to the ranked names' industries; the ranking reads no macro
   input.
+- **Consensus flow is optional and demotion-only (D2–D3):** a majority-band name that ≥ 2 funds
+  trimmed beyond price drift and rounding is an overlay contradiction. NAV prices a fund's return
+  only for a USD share class (I8); the rank never reads the flow.
 - **Quality is low-anchor shrunk:** `Q'' = c·Q + (1−c)·Q_low`, `Q_low = 10` and **must stay > 0**;
   never re-percentiled. `c` is `quality_confidence`, the confidence of the ROE points alone.
 

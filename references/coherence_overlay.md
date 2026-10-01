@@ -26,9 +26,10 @@ Claude and humans. The deterministic half lives in `scripts/coherence_audit.py` 
    - [E2.3 ETF check — divergence detection, not confirmation](#e23-etf-check--divergence-detection-not-confirmation)
 5. [The verdict and the tier adjustment](#the-verdict-and-the-tier-adjustment)
 6. [The exit-liquidity check (v0.4)](#the-exit-liquidity-check-v04)
-7. [Reporting the overlay](#reporting-the-overlay)
+7. [The consensus-flow check (v0.4, optional)](#the-consensus-flow-check-v04-optional)
+8. [Reporting the overlay](#reporting-the-overlay)
    - [Mandatory limitations disclosure](#mandatory-limitations-disclosure)
-8. [Deferred (explicitly out of scope)](#deferred-explicitly-out-of-scope)
+9. [Deferred (explicitly out of scope)](#deferred-explicitly-out-of-scope)
 
 ## Why an overlay rather than a third scoring axis
 
@@ -290,6 +291,53 @@ verdict, `exit_liquidity`:
 - Only the holders that report AUM in USD are counted (the v0.32 currency gate).
   Seven to eleven funds cannot crowd a US large cap by themselves; the check flags
   what these holders alone would take to unwind. See `crowding_signal.md`.
+
+---
+
+## The consensus-flow check (v0.4, optional)
+
+The consensus band is a snapshot: it says how much independent opinion holds a stock at or
+above benchmark weight now, not whether the funds are still buying it. When the user supplies
+an earlier set of the same funds' factsheets — an earlier run's `holdings.json`, or the
+`work_bundle.zip` that run left (`run_phase.py p4 --prior-holdings …`) — `consensus_flow.py`
+(Stage D2) asks, fund by fund, whether a weight moved more than prices explain:
+
+- **Drift is taken out.** Had the fund not traded, the weight would have drifted to
+  `w* = w_prev × (1 + r_i) / (1 + R_f)`; the trade is `w_now − w*`. `R_f` is the fund's NAV
+  return **only for a USD share class** — a non-USD class's NAV mixes in currency moves, which
+  I8 forbids converting — otherwise its benchmark proxy ETF's return, otherwise SPY's. The
+  source is recorded per fund.
+- **Rounding is taken out.** Factsheets round weights to a step (0.1pp, 0.01pp, …), detected
+  per fund; ε is half the step. Both weights in a comparison are rounded, so a trade must
+  exceed `ε_now + ε_prev·(1 + r_i)/(1 + R_f)`. Pure drift never does; a single ε would call a
+  trade on about a quarter of untouched positions.
+- **Per stock**, over the funds that disclose it in both snapshots: `building` (Σ ω·s > 0 and
+  ≥ 2 funds added), `unwinding` (Σ ω·s < 0 and ≥ 2 trimmed), `mixed`, or `insufficient`
+  (fewer than 2 comparable funds). A name that entered or left a top-holdings list carries no
+  sign: it can leave because others grew.
+
+The overlay then adds a fifth verdict, `consensus_flow` (`--flow consensus_flow.json`):
+
+| Condition | Verdict | Effect |
+|---|---|---|
+| band `majority` and flow `unwinding` | `contradiction` | demote one tier; the statement gives the add and trim counts |
+| flow `insufficient`, or no flow row for the stock | `insufficient_data` | none |
+| otherwise — any other band, or building / mixed | `coherent` | none |
+
+- **Why only the majority band.** A majority band claims that most of the independent opinion
+  agrees; two or more funds selling beyond drift contradicts that claim directly. A plural or
+  single-fund name makes no such claim, so its flow is context, not a contradiction.
+- **The same cap.** A flow contradiction joins any other contradiction or risk under the
+  one-tier cap; the gate checks it like any other.
+- **Optional and removable.** Without `--flow` the check does not run and every record is what
+  it was without it. Funds that cannot be matched (on `fund_isin`, else the exact normalised
+  `fund_name`), whose prior `asof` is not earlier, or whose return cannot be measured are
+  excluded and listed in `consensus_flow.json`; with no comparable fund every verdict is
+  `insufficient_data` and no tier moves.
+- **Limits.** Two snapshots show net change only; a round trip between them is invisible.
+  Adjusted closes add dividends back into `r_i`, which can read as a small trim of a
+  high-yielding stock in a fund that reports weights to 0.01pp. A proxy-ETF or SPY `R_f` only
+  approximates the fund's own return. The rank never reads any of it.
 
 ---
 
