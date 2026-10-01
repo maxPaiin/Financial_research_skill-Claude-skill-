@@ -138,11 +138,11 @@ fails the run. The explicit not-found statement above needs no citation.
 
 ### H2.4 Cost is contained — no new retrieval scope
 
-M1's scope is already bound to the **post-screen universe's industries** (v0.31
-E0.2), and the top-15's industries are a subset of that. Therefore: **add an
-expectations / valuation / sentiment facet to the existing M1 retrieval — do not
-add new retrieval scope.** Per-stock retrieval would raise cost by an order of
-magnitude and is out of scope.
+M1's scope is the **industries of the ranked stocks** (v0.4 C5; it was the
+post-screen universe's industries under v0.31) — exactly the groups this section
+describes. Therefore: **add an expectations / valuation / sentiment facet to the
+existing M1 retrieval — do not add new retrieval scope.** Per-stock retrieval would
+raise cost by an order of magnitude and is out of scope.
 
 > **The facet must not leak into the overlay.** Record it in
 > `macro_checkpoint.md` only. **Do not add sentiment or expectations fields to

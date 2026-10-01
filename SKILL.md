@@ -28,8 +28,6 @@ description: Ranks US-listed equities, including ADRs, surfaced by 7-11 Hong Kon
 | 2b | `fetch_fundamentals.py --email <e>` | `holdings.json` | `fundamentals.json`, `unscored_tickers.json`, `data_provenance.json` |
 | 2c | (inside 2b via `providers/resolver.py`) | EDGAR + yfinance per ticker | conflict entries appended to `data_provenance.json` |
 | 2d | `quality_screen.py` | `holdings.json`, `fundamentals.json`, `unscored_tickers.json` | `screen_results.json` (+ `passed_industries` census) |
-| **M1** | Claude + directed-fetch | `screen_results.json` → **post-screen-universe industries** (Fed/ECB/BoJ + official stats) | `macro_checkpoint.md` (**v0.33: also the per-industry expectations-bar / sentiment-cycle facet — same scope, same C2 gate**) **+ `macro_factors.json`** (rate-path / inflation-trend fields only — the facet must NOT go here) |
-| **M1b** | Claude | `screen_results.json` industries + Layer-2 fundamentals | `sector_logic.json` (E2.2 three universal questions per industry) |
 | 2e | `compute_scores.py` | `fundamentals.json`, `screen_results.json` | `scores_per_stock.json` (carries `adv`/`market_cap`) |
 | **2f-i** | `benchmark_weights.py --holdings --out benchmark_weights.json` | `holdings.json` (`benchmark`), yfinance proxy top holdings | `benchmark_weights.json` (proxy ETF, top-10, `b10`, or null + reason) |
 | **2f-ii** | `consensus_signal.py --holdings --benchmark-weights [--vote-basis active\|presence] [--vote-floor common\|none]` | `holdings.json`, `benchmark_weights.json` | `consensus.json` (N_eff, fund weights, votes, `c_share`, bands, anchored core) |
@@ -37,6 +35,8 @@ description: Ranks US-listed equities, including ADRs, surfaced by 7-11 Hong Kon
 | 2g | `layer2_report.py --scores --consensus` | overlap, screen, fundamentals, crowding, scores, consensus | `layer2_screening.md` (consensus structure + exit liquidity + **currency exclusions** + **thin-exposure count** + **passed-but-unscored list**) |
 | 3a | `build_rankings.py --scores --consensus --overlap` | `scores_per_stock.json`, `consensus.json`, `overlap.json` (display) | `rankings.json` — **sole author of rank**: order (band, −Q'', −c_share, ticker), up to 15 |
 | **3a-bis-i** | `etf_relative_strength.py` | `rankings.json` (read-only), yfinance quotes | `etf_relative_strength.json` (RS vs SPY, fixed 3M/6M/12M) |
+| **M1** | Claude + directed-fetch | `rankings.json` → **the ranked names' industries** (≤ 15 stocks; Fed/ECB/BoJ + official stats) | `macro_checkpoint.md` (**also the per-industry expectations-bar / sentiment-cycle facet — same scope, same two-source gate**) **+ `macro_factors.json`** (rate-path / inflation-trend fields only — the facet must NOT go here) |
+| **M1b** | Claude | `rankings.json` industries + Layer-2 fundamentals | `sector_logic.json` (three universal questions per industry) |
 | **3a-bis** | `coherence_audit.py --crowding crowding_signals.json` | `rankings.json` (read-only), `macro_factors.json`, `sector_logic.json`, `etf_relative_strength.json`, `crowding_signals.json` | `coherence.json` (side-car; contradictions **and exit-liquidity risks**; **`rankings.json` untouched**) |
 | 3b | Claude (LLM, 3 batches of 5) | `rankings.json`, `coherence.json` | rationale cards (name each stock's contradiction / explain its divergence) |
 | 3c | Claude (LLM) | all Layer 2 outputs + `rankings.json` (`n_eff_run`) | honest framing prose (HK-bias, the consensus definition, the "too small to crowd" sentence and N_eff — each stated **once**) |
@@ -125,12 +125,14 @@ description: Ranks US-listed equities, including ADRs, surfaced by 7-11 Hong Kon
 
 > **Stages M1–M3 (macro subsystem):** primary-first directed-fetch, cross-source
 > corroboration **hard gate** (≥2 primary-tier sources per fact), per-sentence
-> attribution. **v0.31: M1 runs after 2d (was after 3a) and is scoped to the
-> post-screen universe's industries** — tiering depends on macro, so macro must
-> exist before ranking; the top-15 anchor would be circular. M1's internal
-> logic, sources and the C2 gate are **unchanged** — only its position moved.
-> Full spec: `references/macro_appendix.md`. These stages add web retrieval and
-> token load — the `.md` checkpoints let a long run survive context pressure.
+> attribution. **v0.4 (C5): M1 and M1b run after 3a and before 3a-bis, scoped to the
+> industries in `rankings.json`** (≤ 15 stocks); the H1 facet uses the same scope. The
+> ranking reads no macro input (`TestRankingReadsNoMacro`), so the rank cannot depend on
+> M1, and v0.31's reason for running M1 before ranking no longer applies — while scoping
+> to the ranked names costs far less retrieval than the whole post-screen universe. M1's
+> sources, directed-fetch policy and two-source gate are **unchanged** — only its position
+> and scope moved. Full spec: `references/macro_appendix.md`. These stages add web
+> retrieval and token load — the `.md` checkpoints let a long run survive context pressure.
 
 > **Stage H1 (v0.33 Important Notice):** a per-stock section on the two factors
 > the framework structurally cannot measure — the **expectations bar** (the
@@ -242,7 +244,7 @@ checkpoint `.md` files; it must NOT claim the work dir persists.
 - **The C2 hard gate is never relaxed for the notice.** ≥2 primary-tier sources per claim, or an explicit statement that no corroborating evidence was found. Admitting single-source claims here would make it the one low-standard region in the report — and the one most easily fabricated.
 - **The notice is written constructively, not defensively.** It is not a second disclaimer; the standing verbatim disclaimer already covers that. Its argument — **Tier A means highest-ranked on the measurable dimensions, and precisely for that reason such a name is more likely already fully priced** — is stated ONCE at the section head, not per stock (same discipline as the HK-bias note).
 - **Presenting sentiment evidence does not create a regime detector.** The notice must say plainly that the tool still has none.
-- **No new retrieval scope for v0.33.** M1's existing post-screen sector scope gains a facet; per-stock retrieval is out of scope.
+- **No new retrieval scope for the notice.** M1's sector scope — the industries of the ranked names since v0.4 — gains a facet; per-stock retrieval is out of scope.
 - Consensus is independence-weighted from the holdings themselves; stratified sampling is abandoned (sample too small; token budget) — disclose both reasons.
 - Macro/expectations facts: ≥2 primary-tier sources (HARD gate), per-sentence attribution, no blacklist.
 - Stage 3b: cards in 3 batches of 5, never all 15 at once.

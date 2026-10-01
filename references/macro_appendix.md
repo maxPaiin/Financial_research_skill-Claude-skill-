@@ -18,6 +18,16 @@ scripts involved are `check_checkpoints.py` (deterministic gate) and
 > directed-fetch policy and the C2 hard gate below are unchanged.** M2 stays
 > after ranking, scoped to the final 15.
 
+> **v0.4 amendment (C5) — M1 moves after ranking, scoped to the ranked names.**
+> M1 and M1b now run **after Stage 3a and before Stage 3a-bis**, scoped to the
+> **industries present in `rankings.json`** (at most 15 stocks); the v0.33 facet uses the
+> same scope. This supersedes the v0.31 position: v0.4's ranking reads no macro input at
+> all (enforced by `TestRankingReadsNoMacro`), so the rank cannot depend on M1 and there is
+> no longer a reason to fetch macro before ranking — and fifteen names span far fewer
+> industries than the post-screen universe, so retrieval cost falls. `passed_industries`
+> stays in `screen_results.json` for Layer 2's display. M1's sources, directed-fetch policy
+> and two-source gate are unchanged.
+
 > **v0.33 amendment (H2.4) — M1 gains a facet, not a scope.** Alongside the
 > macro read, M1 also records, **for the same sector scope it already covers**,
 > the **expectations environment and sentiment cycle** of each industry: is the
@@ -54,13 +64,12 @@ Reuters, WSJ, BlackRock public commentary (e.g. BlackRock Investment Institute),
 Fitch public rating commentary. Sell-side research (Citi/JPM/Nomura/…) is mostly
 paywalled — best-effort only.
 
-**Scope to the screened universe's industries — not a generic global macro dump.**
-Read `passed_industries` from `screen_results.json` (v0.31: the post-screen
-universe, available immediately after Stage 2d) to determine which sectors are
-actually in play, then analyse the macro **and aggregate market-demand** picture
-*for those sectors specifically*. This honours the per-industry Appendix-2
-requirement and is cheaper than a generic survey because it bounds retrieval to
-the sectors in play.
+**Scope to the ranked names' industries — not a generic global macro dump.**
+Read the `industry` of each stock in `rankings.json` (v0.4 C5: M1 runs after 3a; the
+phase runner's P4 summary prints the census) to determine which sectors are actually in
+play, then analyse the macro **and aggregate market-demand** picture *for those sectors
+specifically*. This honours the per-industry Appendix-2 requirement and is cheaper than a
+generic survey because it bounds retrieval to the sectors in play.
 
 **Also emit the structured fields (v0.31 E2.1) — do not re-fetch anything.**
 Inflation trajectory and the policy-rate path are already in the corpus above.

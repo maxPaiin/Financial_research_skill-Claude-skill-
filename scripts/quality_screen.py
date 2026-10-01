@@ -36,12 +36,10 @@ Output schema — screen_results.json:
   ]
 }
 
-v0.31 (E0.2): `passed_industries` is the industry census of the POST-SCREEN
-universe. M1 (macro) moved from after-3a to after-2d and is scoped to these
-industries — the top-15 anchor it used in v0.3 is produced *by* ranking, so
-reading it before ranking would be circular. The screened universe exists prior
-to ranking and is bounded (typically a few dozen names across a limited set of
-industries), which preserves the cost-control intent of the original scoping.
+`passed_industries` is the industry census of the post-screen universe, shown in
+Layer 2. (v0.31 scoped M1 to it; since v0.4 C5 M1 runs after ranking and is
+scoped to the ranked names' industries instead, because the ranking reads no
+macro input.)
 """
 
 from __future__ import annotations
@@ -130,10 +128,9 @@ def screen(ticker: str, record: FundamentalsRecord) -> ScreenResult:
 
 
 def passed_industries(results: list[dict]) -> dict[str, int]:
-    """Industry census of the post-screen universe (v0.31 E0.2 — M1's scope).
+    """Industry census of the post-screen universe, for Layer 2's display.
 
-    Descending by count so the macro stage reads the sectors that actually
-    dominate the screened universe first.
+    Descending by count (ties by name), so the dominant sectors read first.
     """
     census: dict[str, int] = {}
     for r in results:
@@ -250,8 +247,7 @@ def main():
             "reason": sr.reason,
             "detail": sr.detail,
             "source": rec_dict.get("source"),
-            # v0.31 (E0.2): carried so the post-screen universe's industry
-            # census can be taken here, before ranking, for M1's scope.
+            # Carried for the post-screen industry census (Layer 2 display).
             "industry": record.industry,
         })
 
@@ -279,7 +275,7 @@ def main():
     census = out["passed_industries"]
     if census:
         print(
-            "Post-screen universe industries (M1 scope, v0.31): "
+            "Post-screen universe industries: "
             + ", ".join(f"{k}={v}" for k, v in census.items())
         )
 

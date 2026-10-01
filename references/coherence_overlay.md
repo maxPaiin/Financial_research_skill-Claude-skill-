@@ -50,6 +50,15 @@ intent of the original scoping rule. `quality_screen.py` emits
 directed-fetch policy and the C2 corroboration hard gate are **unchanged**. M2
 (per-stock scenarios) stays after ranking, since it is scoped to the final 15.
 
+> **Superseded in v0.4 (C5): M1 runs after 3a again — and that is now safe.** The
+> argument above held only while the ranking could, in principle, take macro into
+> account. v0.4's ranking is an ordering of consensus band and quality that reads no
+> macro, sector-logic, ETF or overlay input (`TestRankingReadsNoMacro`), so the rank
+> cannot depend on M1 whatever order the stages run in. M1 and M1b therefore run after
+> 3a and before this audit, scoped to the industries in `rankings.json` — the overlay
+> still has its macro and sector inputs before it runs, and retrieval is bounded by at
+> most fifteen names instead of the post-screen universe.
+
 ### 2. Tiers stop being a display slice
 
 v0.3 assigned tiers as pure rank slices (A = 1–5, B = 6–10, C = 11–15), carrying

@@ -218,28 +218,33 @@ If fewer than 7 PDFs are supplied, validation stops the pipeline and asks the us
 | --------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
 | Layer 1 — Extraction       | 0–1e        | `validate_uploads.py`, `resolve_tickers.py`, `extract_holdings.py`, `layer1_report.py`                                             |
 | Layer 2 — Overlap & Screen | 2a–2g       | `overlap_analysis.py`, `providers/registry.py`, `quality_screen.py`, `compute_scores.py`, `benchmark_weights.py`, `consensus_signal.py`, `crowding_signal.py`, `layer2_report.py` |
-| Macro (v0.31: after 2d)     | M1, M1b      | Claude directed-fetch → `macro_checkpoint.md` (v0.33: **+ expectations/sentiment facet**) + `macro_factors.json`, `sector_logic.json` |
+| Macro (v0.4: after 3a)      | M1, M1b      | Claude directed-fetch, scoped to the ranked names' industries → `macro_checkpoint.md` (v0.33: **+ expectations/sentiment facet**) + `macro_factors.json`, `sector_logic.json` |
 | Important Notice (v0.33)    | H1           | Claude → `important_notice_checkpoint.md` — outside every scoring layer; rendered after the appendices, before methodology         |
 | Layer 3 — Ranking & Advice | 3a–3d + PDF | `build_rankings.py`, `etf_relative_strength.py`, `coherence_audit.py`, `layer3_report.py`, `build_report.py`                       |
 
 Full orchestration logic and error recovery rules: [`SKILL.md`](./SKILL.md).
 
-### Where the overlay sits (v0.31)
+### Where the overlay sits (v0.31, re-sequenced in v0.4)
 
 ```
-2d quality_screen.py ──► screen_results.json (+ passed_industries)
+2a–2f  overlap, fundamentals, screen, scores, benchmark weights, consensus, exit liquidity
       │
+3a     build_rankings.py ──► rankings.json      (sole author of rank; reads no macro)
+      │                         │   READ-ONLY below this line
+      ├─► 3a-bis-i etf_relative_strength.py ──► etf_relative_strength.json
       ├─► M1  Claude directed-fetch ──► macro_checkpoint.md + macro_factors.json
       └─► M1b Claude ────────────────► sector_logic.json
-                                              │
-2e–2f ──► 3a build_rankings.py ──► rankings.json ──┐   (sole author of rank)
-                                              │    │   READ-ONLY below this line
-         etf_relative_strength.py + crowding_signals.json (v0.4: exit liquidity)
-                                              ▼    ▼
-                       3a-bis coherence_audit.py ──► coherence.json   (side-car)
-                                              │
-      3b/3d cards + layer3_report.py ◄────────┘   tier may drop one level; rank never changes
+                                        │   (scoped to the industries in rankings.json)
+                                        ▼
+3a-bis coherence_audit.py (+ crowding_signals.json) ──► coherence.json   (side-car)
+                                        │
+3b/3d  cards + layer3_report.py ◄───────┘   tier may drop one level; rank never changes
 ```
+
+v0.31 ran M1 before ranking, because the ranking could in principle have taken macro into
+account. v0.4's ranking reads no macro input at all (`TestRankingReadsNoMacro`), so M1 now
+runs after it, scoped to at most fifteen names' industries — the overlay still gets its
+inputs before it runs, and the most expensive retrieval in the pipeline shrinks.
 
 Delete `coherence_audit.py` and its side-car and the pipeline still runs, producing the
 pre-overlay report. If removing it breaks anything downstream or changes a rank, the implementation is wrong
