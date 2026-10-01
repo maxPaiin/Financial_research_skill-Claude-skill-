@@ -21,9 +21,10 @@ description: Ranks US-listed equities, including ADRs, surfaced by 7-11 Hong Kon
 > `run_phase.py p1 <uploads.zip>` → review → `p2` → `p3` → `p4` → M1/M1b → `p5` →
 > 3b/3c/M2/M3/H1 → `p6`; `run_phase.py status` shows progress. Pass the SEC email with
 > `--email` or `EDGAR_CONTACT_EMAIL`; it is never stored. The table lists what each phase runs.
-> **Resume (C7):** p6 saves `work_bundle.zip` to the outputs dir (`bundle.py save` does it at any
-> point). When the user supplies a `work_bundle.zip`, run `bundle.py load <zip>` and continue from
-> the phase it names (`state.json`) — one run can span two usage windows.
+> **Resume (C7):** every phase refreshes `work_bundle.zip` in the outputs dir. When the user
+> supplies a `work_bundle.zip`, run `bundle.py load <zip>` and continue from the phase it names
+> (`state.json`) — one run can span two usage windows. The bundle never carries PDFs: if the
+> Stage 1a review was unfinished, ask for the .zip again before rendering pages.
 
 | Stage | Script / Actor | Reads | Writes |
 |---|---|---|---|

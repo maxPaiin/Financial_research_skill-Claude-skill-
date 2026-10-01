@@ -404,13 +404,14 @@ python scripts/run_phase.py status                  # what has run, what is stal
 `--vote-basis presence` / `--vote-floor none` on `p3` are sensitivity runs; `--replay-dir`
 runs a phase offline from recorded inputs.
 
-**Resuming a run (v0.4).** `p6` also writes `work_bundle.zip` to the outputs directory — the
-work directory's JSON, Markdown and text checkpoints plus the rationale cards, never the PDFs.
-If a run is interrupted (a usage window ends, the claude.ai container resets), save the bundle
-at any point and hand it to a new session; it continues from the phase it names:
+**Resuming a run (v0.4).** Every phase also refreshes `work_bundle.zip` in the outputs
+directory — the work directory's JSON, Markdown and text checkpoints plus the rationale cards,
+never the PDFs. If a run is interrupted (a usage window ends, the claude.ai container resets),
+hand the latest bundle to a new session; it continues from the phase it names. If the
+interruption came before the factsheet review was finished, upload the .zip again as well:
 
 ```bash
-python scripts/bundle.py save                       # -> fr_outputs/work_bundle.zip
+python scripts/bundle.py save                       # by hand -> fr_outputs/work_bundle.zip
 python scripts/bundle.py load work_bundle.zip       # restores fr_work, prints "Next: run_phase.py pN"
 ```
 

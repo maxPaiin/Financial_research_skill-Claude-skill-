@@ -58,11 +58,14 @@ def members(work: Path) -> list[Path]:
     return found
 
 
-def save(work: Path, out: Path) -> list[str]:
+def save(work: Path, out: Path, email: str | None = None) -> list[str]:
+    """Zip the work dir's checkpoint files to `out`; refuse if one holds the email
+    (`email`, else EDGAR_CONTACT_EMAIL)."""
     files = members(work)
     if not files:
         raise BundleError(f"nothing to save in {work}")
-    email = (os.environ.get("EDGAR_CONTACT_EMAIL") or "").strip().lower()
+    email = (email if email is not None else os.environ.get("EDGAR_CONTACT_EMAIL") or "")
+    email = email.strip().lower()
     if email:
         for f in files:
             if email in f.read_text(encoding="utf-8", errors="ignore").lower():

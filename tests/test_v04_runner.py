@@ -72,6 +72,7 @@ class TestDryRunP2ToP4(_Workspace):
                 lines = out.strip().splitlines()
                 self.assertLessEqual(len(lines), run_phase.MAX_SUMMARY_LINES)
                 self.assertTrue(lines[-1].startswith("Next: "), lines[-1])
+                self.assertIn("Resume bundle: ", out)                       # C7
 
         state = json.loads((self.work / "state.json").read_text())
         self.assertEqual(state["completed_phases"], ["p2", "p3", "p4"])
@@ -117,6 +118,21 @@ class TestDryRunP2ToP4(_Workspace):
         for path in self.work.rglob("*"):
             if path.is_file() and path.suffix in (".json", ".md", ".txt"):
                 self.assertNotIn(EMAIL, path.read_text(encoding="utf-8"), path.name)
+
+    def test_every_phase_leaves_a_bundle_that_names_the_next_phase(self):
+        # C7: the bundle is saved after state.json, so an interruption after
+        # p4 resumes at p5 — with the same files the work dir holds.
+        from bundle import load
+        for phase in ("p2", "p3", "p4"):
+            self.assertEqual(self.phase(phase)[0], 0)
+        fresh = self.work.parent / "fresh"
+        names, state = load(self.outputs / "work_bundle.zip", fresh)
+        self.assertEqual(state["completed_phases"], ["p2", "p3", "p4"])
+        self.assertEqual(state["next"], "p5")
+        for name in ("rankings.json", "consensus.json", "run_config.json", "state.json"):
+            self.assertIn(name, names)
+            self.assertEqual((fresh / name).read_bytes(), (self.work / name).read_bytes(), name)
+        self.assertFalse(any(n.endswith(".pdf") for n in names))
 
     def test_rerunning_an_earlier_phase_resets_later_ones(self):
         for phase in ("p2", "p3", "p4"):
@@ -166,7 +182,11 @@ class TestFailuresAndStatus(_Workspace):
         self.assertEqual(code, 0, err)
         self.assertTrue((self.outputs / "financial_research_report.pdf").exists())
         self.assertIn("Checkpoint gate: passed", out)
-        self.assertTrue((self.outputs / "work_bundle.zip").exists())      # C7
+        self.assertIn("Resume bundle: ", out)                             # C7
+        from bundle import load
+        _, state = load(self.outputs / "work_bundle.zip", self.work.parent / "fresh")
+        self.assertEqual(state["completed_phases"][-1], "p6")
+        self.assertIsNone(state["next"])
 
 
 class TestPhaseOne(unittest.TestCase):

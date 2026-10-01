@@ -14,7 +14,10 @@ and a run costs one tool call per phase instead of one per stage (F17).
   —   Claude: M1 + M1b, scoped to the ranked names' industries
   p5  3a-bis coherence_audit
   —   Claude: 3b cards, 3c framing, M2, M3, H1
-  p6  3d layer3_report · Mg check_checkpoints · 4 build_report · bundle.py save
+  p6  3d layer3_report · Mg check_checkpoints · 4 build_report
+
+After every phase the work dir is saved to <outputs>/work_bundle.zip (C7), so a
+run interrupted anywhere continues from `bundle.py load` in a new session.
 
 Usage:
   run_phase.py p1 <uploads.zip | folder> [--force]
@@ -51,6 +54,7 @@ from typing import Callable, Optional
 _SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(_SCRIPTS))
 
+from bundle import BUNDLE_NAME, BundleError, save as save_bundle  # noqa: E402
 from paths import outputs_dir, work_dir  # noqa: E402
 
 VERSION = "0.4"
@@ -351,14 +355,11 @@ def phase_p6(run: Run) -> list[str]:
     pdf = run.outputs / "financial_research_report.pdf"
     run.script("4", "build_report.py", "--work-dir", run.work, "--out", pdf,
                "--outputs-dir", run.outputs)
-    bundle = run.outputs / "work_bundle.zip"
-    run.script("bundle", "bundle.py", "save", "--work-dir", run.work, "--out", bundle)
-    copied = sorted(p.name for p in run.outputs.glob("*") if p.name not in (pdf.name, bundle.name))
+    copied = sorted(p.name for p in run.outputs.glob("*") if p.name not in (pdf.name, BUNDLE_NAME))
     return [f"Layer 3: {w('layer3_ranked_advice.md')}",
             "Checkpoint gate: passed",
             f"PDF: {pdf}",
-            f"Copied to outputs: {len(copied)} file(s)",
-            f"Resume bundle: {bundle}"]
+            f"Copied to outputs: {len(copied)} file(s)"]
 
 
 RUNNERS: dict[str, Callable[[Run], list[str]]] = {
@@ -387,6 +388,16 @@ def update_state(run: Run, phase: str, hashes_before: dict[str, Optional[str]]) 
     state = {"version": VERSION, "completed_phases": done, "next": nxt, "input_hashes": hashes}
     _write_json(run.path("state.json"), state, run.env.get("EDGAR_CONTACT_EMAIL"))
     return state
+
+
+def resume_bundle(run: Run) -> str:
+    """C7: saved after state.json is updated, so the bundle names the right next phase."""
+    out = run.outputs / BUNDLE_NAME
+    try:
+        save_bundle(run.work, out, email=run.env.get("EDGAR_CONTACT_EMAIL"))
+    except BundleError as e:
+        return f"Resume bundle not saved: {e}"
+    return f"Resume bundle: {out}"
 
 
 def status(run: Run) -> list[str]:
@@ -437,8 +448,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 1
     run.save_config()
     state = update_state(run, args.phase, hashes_before)
+    lines = lines[:MAX_SUMMARY_LINES - 3] + [resume_bundle(run)]
     print(f"{args.phase} done.")
-    print("\n".join(lines[:MAX_SUMMARY_LINES - 2]))
+    print("\n".join(lines))
     print(f"Next: {NEXT_STEP[args.phase]}" + (f" (state: next={state['next']})" if state["next"] else ""))
     return 0
 
