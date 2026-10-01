@@ -337,5 +337,36 @@ class TestApplyReview(unittest.TestCase):
         self.assertNotIn("resolution", data["funds"][0]["holdings"][0])
 
 
+class TestShareClassFieldsSurviveP2(unittest.TestCase):
+    """D1: the fund's own fund_isin and nav_per_share, recorded at 1a, reach the
+    listing-checked holdings.json — a later run's consensus flow reads them."""
+
+    def test_fields_survive_resolve_and_dedupe(self):
+        import contextlib
+        import io
+        import os
+        from unittest import mock
+        import run_phase
+        import runner_fixtures
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.dict(os.environ, {"EDGAR_CONTACT_EMAIL": "intake-test@example.com"}):
+            root = Path(tmp)
+            work, replay = root / "work", root / "replay"
+            runner_fixtures.build(work, replay)
+            data = json.loads((work / "holdings.json").read_text())
+            for i, f in enumerate(data["funds"], 1):
+                f["fund_isin"], f["nav_per_share"] = f"LU000000000{i}", 100.0 + i
+            (work / "holdings.json").write_text(json.dumps(data))
+            err = io.StringIO()
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+                code = run_phase.main(["p2", "--work-dir", str(work), "--outputs-dir",
+                                       str(root / "out"), "--replay-dir", str(replay)])
+            self.assertEqual(code, 0, err.getvalue())
+            funds = json.loads((work / "holdings.json").read_text())["funds"]
+            self.assertTrue(all(f.get("holdings_us") for f in funds))
+            self.assertEqual([(f["fund_isin"], f["nav_per_share"]) for f in funds[:2]],
+                             [("LU0000000001", 101.0), ("LU0000000002", 102.0)])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -160,7 +160,9 @@ the work dir.
    converted.
 4. **`benchmark` exactly as printed** (v0.4 B3), `null` when none is printed. Never infer it — a
    fund without one casts presence votes, and the report says so.
-5. A ticker or ISIN may be added only when it is printed on the page.
+5. A ticker or ISIN may be added only when it is printed on the page. The same holds for the fund's
+   own `fund_isin` (the share class) and `nav_per_share` (D1): optional, but a later run's
+   consensus flow matches funds and prices USD classes with them.
 6. Optional: a coarse `style` per fund — one or more of `{value, growth, blend, income_dividend,
    sector_specific, small_mid_cap, region_tilt_non_us}` — from the name, the stated benchmark and
    the top holdings. **Display only; it enters no number** (I9).
