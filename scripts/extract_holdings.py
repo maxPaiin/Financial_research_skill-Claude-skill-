@@ -310,8 +310,14 @@ def filter_fund_holdings(fund: dict) -> tuple[list[dict], dict]:
 
         kept.append({**h, "ticker_normalized": normalized})
 
-    weight_kept = sum(h.get("weight", 0) for h in kept)
-    weight_dropped = sum(h.get("weight", 0) for h in raw_holdings) - weight_kept
+    weight_kept = sum(_weight(h) for h in kept)
+    weight_dropped = sum(_weight(h) for h in raw_holdings) - weight_kept
+
+    # B2: how deep the factsheet discloses — over every equity row with a
+    # weight, non-US rows included (a fund's top-10 is its top-10 whatever
+    # the listing). The smallest disclosed weight is the fund's floor.
+    disclosed = [float(h["weight"]) for h in raw_holdings
+                 if not is_non_equity(h) and _is_weight(h.get("weight"))]
 
     if methods == {"sec_exchange_file"}:
         listing_check = "sec_exchange_file"
@@ -332,8 +338,37 @@ def filter_fund_holdings(fund: dict) -> tuple[list[dict], dict]:
         "listing_check": listing_check,
         "resolution_counts": dict(sorted(resolution_counts.items())),
         "dropped_rows": dropped_rows,
+        "disclosure_depth": len(disclosed),
+        "disclosure_floor": round(min(disclosed), 6) if disclosed else None,
     }
     return kept, scope_summary
+
+
+def _is_weight(w) -> bool:
+    return isinstance(w, (int, float)) and not isinstance(w, bool) and w > 0
+
+
+def _weight(h: dict) -> float:
+    """A row's weight as a number; a missing or unreadable weight counts as 0."""
+    w = h.get("weight")
+    return float(w) if _is_weight(w) else 0.0
+
+
+def common_vote_floor(funds: list[dict]) -> tuple[float | None, list[str]]:
+    """B2: the common vote floor tau and the fund(s) that set it.
+
+    tau is the largest disclosure floor among accepted funds: a position below
+    it cannot count as a vote, because at least one fund in the run would not
+    have disclosed a position that small — counting it would reward deeper
+    disclosure, not conviction.
+    """
+    floors = {f["fund_id"]: (f.get("scope_summary") or {}).get("disclosure_floor")
+              for f in funds if is_accepted(f)}
+    floors = {fid: v for fid, v in floors.items() if _is_weight(v)}
+    if not floors:
+        return None, []
+    tau = max(floors.values())
+    return tau, sorted((fid for fid, v in floors.items() if v == tau), key=fund_order_key)
 
 
 def check_fund_viability(fund: dict, kept: list, aum: float | None) -> tuple[bool, str]:
@@ -341,7 +376,7 @@ def check_fund_viability(fund: dict, kept: list, aum: float | None) -> tuple[boo
     if len(kept) < _MIN_HOLDINGS:
         return False, f"Only {len(kept)} US equity holdings extracted (minimum {_MIN_HOLDINGS})"
     if aum and aum > 0:
-        weight_sum = sum(h.get("weight", 0) for h in kept)
+        weight_sum = sum(_weight(h) for h in kept)
         if weight_sum < _MIN_AUM_WEIGHT:
             return False, (
                 f"US equity holdings sum to {weight_sum:.1%} of AUM "
@@ -369,7 +404,7 @@ def dedupe(holdings_data: dict) -> dict:
             entry["ticker"] = tkr
             entry["name"] = entry["name"] or h.get("name")
             entry["held_by"].append(fid)
-            entry["weights_by_fund"][fid] = h.get("weight", 0.0)
+            entry["weights_by_fund"][fid] = _weight(h)
 
     result = []
     for tkr, e in universe.items():

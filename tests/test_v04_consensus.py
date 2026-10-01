@@ -87,5 +87,59 @@ class TestIdenticalFundMerge(unittest.TestCase):
         self.assertIn("merged into F1 (identical share class)", md)
 
 
+# -----------------------------------------------------------------------------
+# B2 — disclosure depth and the common vote floor
+# -----------------------------------------------------------------------------
+
+class TestDisclosureFloor(unittest.TestCase):
+    def test_depth_and_floor_count_every_equity_row_with_a_weight(self):
+        from extract_holdings import filter_fund_holdings
+        _, scope = filter_fund_holdings({"fund_id": "F1", "holdings": [
+            {"ticker_raw": "AAPL", "name": "Apple", "weight": 0.071},
+            {"ticker_raw": "2330.TW", "name": "TSMC", "weight": 0.055},   # non-US: counted
+            {"ticker_raw": "MSFT", "name": "Microsoft", "weight": 0.024},
+            {"name": "Cash and equivalents", "weight": 0.010},             # non-equity: not
+            {"ticker_raw": "NVDA", "name": "NVIDIA", "weight": None},      # no weight: not
+        ]})
+        self.assertEqual(scope["disclosure_depth"], 3)
+        self.assertEqual(scope["disclosure_floor"], 0.024)
+
+    def test_no_weights_means_no_floor(self):
+        from extract_holdings import filter_fund_holdings
+        _, scope = filter_fund_holdings({"fund_id": "F1", "holdings": [
+            {"ticker_raw": "AAPL", "name": "Apple"}]})
+        self.assertEqual(scope["disclosure_depth"], 0)
+        self.assertIsNone(scope["disclosure_floor"])
+
+    def _with_floor(self, fid, floor, **kw):
+        return _fund(fid, {"AAA": 0.05}, scope_summary={"disclosure_floor": floor}, **kw)
+
+    def test_tau_is_the_largest_floor(self):
+        from extract_holdings import common_vote_floor
+        tau, set_by = common_vote_floor([self._with_floor("F1", 0.011),
+                                         self._with_floor("F2", 0.032),
+                                         self._with_floor("F3", 0.024)])
+        self.assertEqual(tau, 0.032)
+        self.assertEqual(set_by, ["F2"])
+
+    def test_ties_name_every_fund_that_sets_it(self):
+        from extract_holdings import common_vote_floor
+        _, set_by = common_vote_floor([self._with_floor("F10", 0.03),
+                                       self._with_floor("F2", 0.03),
+                                       self._with_floor("F1", 0.01)])
+        self.assertEqual(set_by, ["F2", "F10"])
+
+    def test_merged_and_rejected_funds_do_not_set_it(self):
+        from extract_holdings import common_vote_floor
+        tau, _ = common_vote_floor([self._with_floor("F1", 0.02),
+                                    self._with_floor("F2", 0.09, merged_into="F1"),
+                                    {**self._with_floor("F3", 0.08), "rejected": True}])
+        self.assertEqual(tau, 0.02)
+
+    def test_no_floor_anywhere(self):
+        from extract_holdings import common_vote_floor
+        self.assertEqual(common_vote_floor([self._with_floor("F1", None)]), (None, []))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
