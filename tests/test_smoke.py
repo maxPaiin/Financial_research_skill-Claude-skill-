@@ -320,12 +320,14 @@ class TestLowAnchorShrinkage(unittest.TestCase):
 
 
 # -----------------------------------------------------------------------------
-# build_rankings — percentile_rank (H3) & tier() (basic)
+# percentile_rank (H3). v0.4 B5: the ranking no longer percentile-ranks a
+# consensus signal, so the one percentile rank left — the quality score's, in
+# compute_scores.py — carries the regression test.
 # -----------------------------------------------------------------------------
 
 class TestPercentileRank(unittest.TestCase):
     def setUp(self):
-        from build_rankings import percentile_rank
+        from compute_scores import percentile_rank
         self.fn = percentile_rank
 
     def test_uniform_spread(self):

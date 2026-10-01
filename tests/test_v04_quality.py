@@ -186,6 +186,12 @@ def _record(ticker: str, roe: list[float], conf: float, *, fill_ins: bool = Fals
     )
 
 
+def _consensus(tickers) -> dict:
+    """Every ticker held and voted for by two funds — a plural band."""
+    return {"stocks": [{"ticker": t, "n_votes": 2, "n_holders": 2, "band": "plural",
+                        "c_share": 0.4, "opinions": 0.8} for t in tickers]}
+
+
 def _pipeline(records: list[FundamentalsRecord]) -> tuple[dict, dict, dict]:
     """fundamentals.json -> screen_results.json -> scores_per_stock.json."""
     from fetch_fundamentals import record_to_dict
@@ -224,9 +230,8 @@ class TestQualityConfidence(unittest.TestCase):
         self.assertEqual(a["quality_confidence"], b["quality_confidence"])
 
         def q2(scores):
-            crowding = {"signals": [{"ticker": t, "signal": 1.0}
-                                    for t in scores["stocks"]]}
-            ranked = build_rankings.rank(scores, crowding, {"overlap": []})["ranked"]
+            ranked = build_rankings.rank(scores, _consensus(scores["stocks"]),
+                                         {"overlap": []})["ranked"]
             return {r["ticker"]: r["q_shrunk"] for r in ranked}
 
         self.assertEqual(q2(scores_a)["TGT"], q2(scores_b)["TGT"])
@@ -267,9 +272,9 @@ class TestUnscoredDisclosure(unittest.TestCase):
 
     def test_it_is_never_ranked(self):
         import build_rankings
-        crowding = {"signals": [{"ticker": t, "signal": 1.0} for t in ("AAA", "BBB", "TTM")]}
-        ranked = build_rankings.rank(self.scores, crowding, {"overlap": []})["ranked"]
-        self.assertNotIn("TTM", [r["ticker"] for r in ranked])
+        ranked = build_rankings.rank(self.scores, _consensus(["AAA", "BBB", "TTM"]),
+                                     {"overlap": []})["ranked"]
+        self.assertEqual([r["ticker"] for r in ranked], ["BBB", "AAA"])   # TTM absent
 
     def test_it_appears_in_the_layer2_subsection(self):
         from layer2_report import build_layer2_md

@@ -1,55 +1,53 @@
 """
-Stage 3a: Composite ranking — one ranking, top 15, three display tiers.
+Stage 3a: the ranking — up to 15 names, three display tiers.
 
-Ranking formula (canonical per §5.3, v0.3):
-  Q''            = c * Q + (1 - c) * Q_LOW        (low-anchor confidence shrink)
-  composite_score = 0.50 * Q''                    (0-100, low-anchor shrunk quality)
-                  + 0.50 * crowding_signal_normalized  (0-100, percentile rank)
+v0.4 (B5, DEC-2): the ranking is an ORDERING OF KEYS, not a weighted sum.
+No weight is written down anywhere, because none could be calibrated (the
+backtest was removed in v0.2). Each eligible stock is ordered by
 
-  where Q  = fundamental_quality_score (0-100 percentile rank)
-        c  = quality_confidence: mean confidence of the stock's defined ROE
-             points (v0.34 A5; was overall_confidence, which moved with
-             whether unrelated yfinance fill-ins — EV/EBITDA, market cap,
-             ADV — succeeded)
-        Q_LOW = 10 (locked default; MUST stay > 0)
+    (consensus band, -Q'', -c_share, ticker)
 
-v0.3 (A4) low-anchor confidence shrinkage — applied to the QUALITY half ONLY,
-never to the consensus/crowding half. Rationale: Q's confidence comes from the
-*data source* (EDGAR ~0.9 vs yfinance ~0.5 — a real per-stock difference),
-whereas the consensus half's "confidence" is staleness, roughly uniform within
-a run. A stock scored entirely from low-confidence yfinance data is pulled
-toward "low but non-zero" (~Q_LOW), so unverifiable numbers cannot float a
-stock to mid-pack. Q'' is deliberately NOT re-percentiled — the penalty must
-move a stock's *absolute* position, not be washed out by re-ranking.
+  band     majority < plural < single, from consensus.json (consensus_signal.py):
+           what independent funds collectively hold at or above benchmark weight
+  Q''      low-anchor confidence-shrunk quality, c*Q + (1-c)*Q_LOW (v0.3 A4)
+  c_share  the consensus share itself, within a band and a quality tie
+  ticker   last, so the same inputs always give the same order (I10)
 
-Q_LOW must be > 0. With Q_LOW = 0 the formula degenerates to c*Q (the
-multiplicative form explicitly rejected in favour of low-anchor).
+so quality orders names inside each consensus band, and consensus decides which
+band a name sits in. The v0.3 50/50 composite is retired; a copy lives only in
+scripts/dev/legacy_v033.py, for side-by-side comparison.
 
-The consensus half still uses percentile rank within the passed universe so it
-shares a scale with Q. Earlier versions min-max'd the crowding signal, which
-exploded noise: `consensus_raw = log(1 + n_funds_holding)` has a narrow range
-(~0.7-2.5) and a single outlier dragged everyone else to the extremes.
+Eligible: passed the quality screen, has a quality score, and has at least one
+qualifying vote (n_votes >= 1). Names nobody votes for are not ranked; those a
+majority of funds hold only at benchmark weight are reported as the
+benchmark-anchored core instead (DEC-3).
 
-Tier grouping (display only, does not affect rationale generation):
-  Tier A: rank 1-5
-  Tier B: rank 6-10
-  Tier C: rank 11-15
+Low-anchor shrinkage (v0.3 A4, unchanged): Q'' = c*Q + (1-c)*Q_LOW with
+c = quality_confidence, the confidence of the stock's ROE points (v0.34 A5).
+Q_LOW must stay > 0: Q_LOW = 0 degenerates to the rejected multiplicative form.
+Q'' is NOT re-percentiled, so the penalty moves a stock's absolute position.
 
-Ranking weights are the canonical location per §5.3.
+Tiers stay display slices of rank: A = 1-5, B = 6-10, C = 11-15. Fewer than five
+eligible names sets warning "few_eligible"; there is no automatic fallback —
+the user is offered a rerun with --vote-basis presence (SKILL.md).
+
+This stage reads scores_per_stock.json, consensus.json and overlap.json (display
+fields only). It reads no top-down or price input of any kind, which is what
+lets those stages run after it (enforced by TestRankingReadsNoMacro).
 """
 
 from __future__ import annotations
 
-import json
 import argparse
+import json
 from pathlib import Path
 from typing import Optional
 
-# Canonical ranking weights — do not duplicate elsewhere.
-_QUALITY_WEIGHT = 0.50
-_CONSENSUS_WEIGHT = 0.50
+RANKING_METHOD = "v0.4-consensus-bands"
 _TOP_N = 15
 _TIER_BREAKS = [5, 10, 15]   # A: ≤5, B: ≤10, C: ≤15
+_MIN_ELIGIBLE = 5
+BAND_ORDER = {"majority": 0, "plural": 1, "single": 2}
 
 # A4 (v0.3) low-anchor confidence shrinkage — canonical location.
 # Q_LOW MUST stay > 0 (=0 degenerates to the rejected multiplicative form).
@@ -60,25 +58,17 @@ _Q_LOW = 10.0
 # trusted at face value (premise 2: uncertainty is a quality defect).
 _DEFAULT_CONFIDENCE = 0.5
 
+_DISPLAY_FROM_SCORES = ("industry", "roe_5y_avg", "ev_ebitda", "debt_equity", "is_adr",
+                        "data_confidence", "data_asof", "market_cap", "adv")
+_DISPLAY_FROM_OVERLAP = ("n_funds_holding", "held_by", "avg_weight", "max_weight",
+                         "sum_of_weights", "weights_by_fund")
+
 
 def low_anchor_shrink(q: float, confidence: Optional[float]) -> float:
     """Q'' = c*Q + (1-c)*Q_LOW. Pulls low-confidence quality toward Q_LOW."""
     c = confidence if confidence is not None else _DEFAULT_CONFIDENCE
     c = max(0.0, min(1.0, float(c)))
     return round(c * q + (1.0 - c) * _Q_LOW, 2)
-
-
-def percentile_rank(value: float, distribution: list[float]) -> float:
-    """Percentile rank of value in distribution: 0 (lowest) to 100 (highest).
-
-    Duplicated from compute_scores.py rather than imported so the two stage
-    scripts stay independently runnable.
-    """
-    if not distribution:
-        return 50.0
-    n_below = sum(1 for v in distribution if v < value)
-    n_equal = sum(1 for v in distribution if v == value)
-    return round(100.0 * (n_below + 0.5 * n_equal) / len(distribution), 2)
 
 
 def tier(rank: int) -> str:
@@ -89,115 +79,98 @@ def tier(rank: int) -> str:
     return "C"
 
 
-def rank(scores_data: dict, crowding_data: dict, overlap_data: dict) -> dict:
-    """rankings.json content. Confidence is read from scores_per_stock.json only."""
+def sort_key(c: dict) -> tuple:
+    """(band, -Q'', -c_share, ticker) — the whole ranking rule."""
+    return (BAND_ORDER[c["band"]], -c["q_shrunk"], -c["c_share"], c["ticker"])
+
+
+def rank(scores_data: dict, consensus: dict, overlap_data: dict) -> dict:
+    """rankings.json content (spec §7.5)."""
     stocks = scores_data.get("stocks", {})
-    crowding_by_ticker = {r["ticker"]: r for r in crowding_data.get("signals", [])}
+    by_ticker = {r["ticker"]: r for r in consensus.get("stocks", [])}
     overlap_by_ticker = {r["ticker"]: r for r in overlap_data.get("overlap", [])}
 
-    # Gather candidates: only passed stocks with a quality score
     candidates = []
     for ticker, s in stocks.items():
-        if s.get("status") != "ok":
+        q = s.get("fundamental_quality_score")
+        con = by_ticker.get(ticker)
+        if s.get("status") != "ok" or q is None or not con:
             continue
-        fq = s.get("fundamental_quality_score")
-        c = crowding_by_ticker.get(ticker, {})
-        crowding_signal = c.get("signal")
-        if fq is None or crowding_signal is None:
+        if con.get("n_votes", 0) < 1 or con.get("band") not in BAND_ORDER:
             continue
+        ov = overlap_by_ticker.get(ticker, {})
         candidates.append({
             "ticker": ticker,
-            "name": overlap_by_ticker.get(ticker, {}).get("name"),
-            "fundamental_quality_score": fq,
-            "crowding_signal_raw": crowding_signal,
-            "crowding_discount": c.get("crowding_discount", 0.0),
-            "is_high_crowding": c.get("is_high_crowding", False),
-            "industry": s.get("industry"),
-            "roe_5y_avg": s.get("roe_5y_avg"),
-            "ev_ebitda": s.get("ev_ebitda"),
-            "debt_equity": s.get("debt_equity"),
-            "is_adr": s.get("is_adr", False),
+            "name": ov.get("name"),
+            "band": con["band"],
+            "c_share": con["c_share"],
+            "opinions": con.get("opinions"),
+            "n_votes": con["n_votes"],
+            "n_holders": con.get("n_holders"),
+            "vote_basis_counts": con.get("vote_basis_counts"),
+            "q_raw": q,
+            "q_shrunk": low_anchor_shrink(q, s.get("quality_confidence")),
             "quality_confidence": s.get("quality_confidence"),
             "roe_years": s.get("roe_years"),
             "roe_source": s.get("roe_source"),
-            "data_confidence": s.get("data_confidence"),
-            "data_asof": s.get("data_asof"),
-            # A1 (v0.3): liquidity/size carried through for reports + A2 label.
-            "market_cap": s.get("market_cap"),
-            "adv": s.get("adv"),
-            # A2 (v0.3): crowding liquidity label set by crowding_signal.py.
-            "crowding_label": c.get("crowding_label"),
-            "days_to_liquidate": c.get("days_to_liquidate"),
-            **{k: overlap_by_ticker.get(ticker, {}).get(k)
-               for k in ("n_funds_holding", "held_by", "avg_weight", "max_weight",
-                         "sum_of_weights", "weights_by_fund")},
+            **{k: s.get(k) for k in _DISPLAY_FROM_SCORES},
+            **{k: ov.get(k) for k in _DISPLAY_FROM_OVERLAP},
         })
 
-    if not candidates:
-        return {"ranked": [], "n_ranked": 0}
+    candidates.sort(key=sort_key)
+    ranked = candidates[:_TOP_N]
+    ordered = []
+    for i, c in enumerate(ranked, start=1):
+        ordered.append({"rank": i, "tier": tier(i), **c})
 
-    # Percentile-rank the crowding signal within the passed universe so it
-    # shares a scale with fundamental_quality_score (already a percentile).
-    raw_signals = [c["crowding_signal_raw"] for c in candidates]
-    for c in candidates:
-        c["crowding_signal_normalized"] = percentile_rank(
-            c["crowding_signal_raw"], raw_signals
-        )
-
-    # A4: low-anchor confidence shrinkage on the quality half ONLY, by the
-    # confidence of the ROE points (v0.34 A5).
-    # Q'' = c*Q + (1-c)*Q_LOW, NOT re-percentiled (absolute move preserved).
-    for c in candidates:
-        c["q_raw"] = c["fundamental_quality_score"]
-        c["q_shrunk"] = low_anchor_shrink(
-            c["fundamental_quality_score"], c.get("quality_confidence")
-        )
-
-    # Composite score — quality half uses the shrunk Q'' (A4), consensus half
-    # uses the percentile-ranked crowding signal (unchanged 50/50 weighting).
-    for c in candidates:
-        c["composite_score"] = round(
-            _QUALITY_WEIGHT * c["q_shrunk"]
-            + _CONSENSUS_WEIGHT * c["crowding_signal_normalized"],
-            2,
-        )
-
-    # Sort descending, take top 15. The ticker is the last key of every sort
-    # that decides a rank, so tied scores never order by input position
-    # (v0.34 A7, I10: the same inputs give a byte-identical rankings.json).
-    candidates.sort(key=lambda x: (-x["composite_score"], x["ticker"]))
-    top15 = candidates[:_TOP_N]
-
-    for i, c in enumerate(top15, start=1):
-        c["rank"] = i
-        c["tier"] = tier(i)
-
+    anchored = consensus.get("anchored_core") or []
     return {
-        "n_passed_universe": len(candidates),
-        "n_ranked": len(top15),
-        "ranked": top15,
+        "ranking_method": RANKING_METHOD,
+        "vote_basis": consensus.get("vote_basis"),
+        "n_funds": consensus.get("n_funds"),
+        "n_eff_run": consensus.get("n_eff_run"),
+        "vote_floor": consensus.get("vote_floor"),
+        "n_eligible": len(candidates),
+        "n_ranked": len(ordered),
+        "warning": "few_eligible" if len(candidates) < _MIN_ELIGIBLE else None,
+        "anchored_core": anchored,
+        # Display detail for the anchored-core section; nothing here is ranked.
+        "anchored_core_detail": [{
+            "ticker": t,
+            "name": overlap_by_ticker.get(t, {}).get("name"),
+            "n_holders": by_ticker.get(t, {}).get("n_holders"),
+            "vote_basis_counts": by_ticker.get(t, {}).get("vote_basis_counts"),
+            "screen_status": (stocks.get(t) or {}).get("status", "not screened in"),
+            "industry": (stocks.get(t) or {}).get("industry"),
+        } for t in anchored],
+        "ranked": ordered,
     }
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--scores", required=True, help="scores_per_stock.json from compute_scores")
-    ap.add_argument("--crowding", required=True, help="crowding_signals.json")
-    ap.add_argument("--overlap", required=True, help="overlap.json")
+    ap.add_argument("--consensus", required=True, help="consensus.json from consensus_signal")
+    ap.add_argument("--overlap", required=True, help="overlap.json (display fields only)")
     ap.add_argument("--out", required=True, help="Output rankings.json")
     args = ap.parse_args()
 
     out = rank(
         json.loads(Path(args.scores).read_text(encoding="utf-8")),
-        json.loads(Path(args.crowding).read_text(encoding="utf-8")),
+        json.loads(Path(args.consensus).read_text(encoding="utf-8")),
         json.loads(Path(args.overlap).read_text(encoding="utf-8")),
     )
-    if not out["ranked"]:
-        print("WARNING: No candidates qualify for ranking (no passed stocks with both scores).")
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(out, indent=2, ensure_ascii=False, default=str))
-    print(f"Top {out['n_ranked']} ranked from {out.get('n_passed_universe', 0)} "
-          f"passed candidates -> {args.out}")
+
+    bands = {b: sum(1 for r in out["ranked"] if r["band"] == b) for b in BAND_ORDER}
+    print(f"Ranked {out['n_ranked']} of {out['n_eligible']} eligible "
+          f"({', '.join(f'{b} {n}' for b, n in bands.items())}) -> {args.out}")
+    if out["anchored_core"]:
+        print(f"Benchmark-anchored core (not ranked): {', '.join(out['anchored_core'])}")
+    if out["warning"] == "few_eligible":
+        print("WARNING few_eligible: fewer than 5 names have a qualifying vote. Tell the "
+              "user; offer to rerun P3-P4 with --vote-basis presence.")
 
 
 if __name__ == "__main__":
