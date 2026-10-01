@@ -59,6 +59,7 @@ ETF_TOP = {
 
 
 def _history(start_price: float, daily: float, n: int = 300) -> list:
+    # 300 weekdays from 2025-06-02 end in late July 2026; flow tests pass more.
     out, d, p = [], date(2025, 6, 2), start_price
     while len(out) < n:
         if d.weekday() < 5:
@@ -68,7 +69,7 @@ def _history(start_price: float, daily: float, n: int = 300) -> list:
     return out
 
 
-def _stock_replay(i: int, ticker: str) -> dict:
+def _stock_replay(i: int, ticker: str, days: int = 300) -> dict:
     roe = 0.12 + 0.015 * i                      # distinct quality per ticker
     equity = 50e9 + 5e9 * i
     return {
@@ -81,11 +82,11 @@ def _stock_replay(i: int, ticker: str) -> dict:
                         for y in (2022, 2023, 2024, 2025)},
         "balance_sheet": {f"{y}-12-31": {"Stockholders Equity": equity * (1 + 0.02 * (y - 2022))}
                           for y in (2022, 2023, 2024, 2025)},
-        "history": _history(100.0 + i, 0.0005 + 0.0001 * i),
+        "history": _history(100.0 + i, 0.0005 + 0.0001 * i, days),
     }
 
 
-def build(work: Path, replay: Path) -> None:
+def build(work: Path, replay: Path, history_days: int = 300) -> None:
     work.mkdir(parents=True, exist_ok=True)
     funds = []
     for fid, name, bench, weights in FUNDS:
@@ -106,11 +107,11 @@ def build(work: Path, replay: Path) -> None:
     for name in ("facts_320193.json", "submissions_320193.json"):
         shutil.copy(_FIXTURES / name, replay / "edgar_cache" / name)
     for i, t in enumerate(TICKERS):
-        (replay / "yfinance" / f"{t}.json").write_text(json.dumps(_stock_replay(i, t)))
+        (replay / "yfinance" / f"{t}.json").write_text(json.dumps(_stock_replay(i, t, history_days)))
     for etf, top in ETF_TOP.items():
         (replay / "yfinance" / f"{etf}.json").write_text(json.dumps({
             "info": {"symbol": etf, "quoteType": "ETF"}, "top_holdings": top,
-            "history": _history(400.0, 0.0006)}))
+            "history": _history(400.0, 0.0006, history_days)}))
     for etf, drift in (("XLK", 0.0009), ("XLC", 0.0004), ("XLY", 0.0002)):
         (replay / "yfinance" / f"{etf}.json").write_text(json.dumps({
-            "info": {"symbol": etf}, "history": _history(200.0, drift)}))
+            "info": {"symbol": etf}, "history": _history(200.0, drift, history_days)}))

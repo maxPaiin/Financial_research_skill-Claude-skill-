@@ -11,6 +11,7 @@ and a run costs one tool call per phase instead of one per stage (F17).
   p3  2a overlap · 2b fundamentals · 2d screen · 2e scores · 2f-i benchmark weights
       · 2f-ii consensus · 2f-iii exit liquidity · 2g layer2_report
   p4  3a build_rankings · 3a-bis-i etf_relative_strength
+      · (D2, only with --prior-holdings) consensus_flow
   —   Claude: M1 + M1b, scoped to the ranked names' industries
   p5  3a-bis coherence_audit
   —   Claude: 3b cards, 3c framing, M2, M3, H1
@@ -28,6 +29,8 @@ Options (stored in <work>/run_config.json and reused by later phases):
   --vote-basis active|presence, --vote-floor common|none   (p3, consensus_signal.py)
   --asof YYYY-MM-DD   request date for fundamentals (p3)
   --max-files N       Stage 0 upper bound, measurement runs only (p1)
+  --prior-holdings P  an earlier run's holdings.json or work_bundle.zip (p4, D2):
+                      consensus flow between the two snapshots
   --replay-dir DIR    offline run: DIR/sec_exchange.json, DIR/edgar_cache/,
                       DIR/yfinance/, DIR/benchmark_top_holdings.json, DIR/prices.json
   --work-dir / --outputs-dir   override paths.py for this run
@@ -62,7 +65,7 @@ PHASES = ("p1", "p2", "p3", "p4", "p5", "p6")
 MAX_SUMMARY_LINES = 15
 _STDERR_TAIL = 20
 _CONFIG_KEYS = ("upload", "pdf_dir", "vote_basis", "vote_floor", "asof", "max_files",
-                "replay_dir")
+                "replay_dir", "prior_holdings")
 
 NEXT_STEP = {
     "p1": "Claude: read candidates_summary.md only; for each flagged path render that page "
@@ -86,7 +89,7 @@ class PhaseError(RuntimeError):
 
 # --- Context ----------------------------------------------------------------------
 
-_PATH_KEYS = ("upload", "replay_dir")
+_PATH_KEYS = ("upload", "replay_dir", "prior_holdings")
 
 
 class Run:
@@ -310,6 +313,34 @@ def phase_p4(run: Run) -> list[str]:
               + ", ".join(f"{k} {v}" for k, v in sorted(industries.items(), key=lambda kv: (-kv[1], kv[0])))]
     n_ok = sum(1 for s in (etf.get("stocks") or {}).values() if s.get("status") == "ok")
     lines += [f"ETF relative strength: {n_ok}/{etf.get('n_stocks', 0)} stocks measured"]
+    if run.config.get("prior_holdings"):
+        lines += _consensus_flow(run, {r["ticker"]: r.get("band") for r in ranked})
+    return lines
+
+
+def _consensus_flow(run: Run, bands: dict[str, str]) -> list[str]:
+    """D2: drift-adjusted flow against the prior snapshot; the overlay reads it at p5."""
+    w = run.path
+    argv = ["--holdings", w("holdings.json"), "--prior-holdings", run.config["prior_holdings"],
+            "--consensus", w("consensus.json"), "--out", w("consensus_flow.json")]
+    if w("benchmark_weights.json").exists():
+        argv += ["--benchmark-weights", w("benchmark_weights.json")]
+    run.script("D2", "consensus_flow.py", *argv)
+    flow = run.read("consensus_flow.json")
+    c = flow.get("counts") or {}
+    lines = [f"Consensus flow: {flow.get('n_comparable_funds', 0)} of {flow.get('n_funds', 0)} "
+             f"funds comparable; building {c.get('building', 0)}, unwinding "
+             f"{c.get('unwinding', 0)}, mixed {c.get('mixed', 0)}, insufficient "
+             f"{c.get('insufficient', 0)}"]
+    unwound = [s["ticker"] for s in flow.get("stocks", [])
+               if s.get("state") == "unwinding" and bands.get(s["ticker"]) == "majority"]
+    if unwound:
+        lines += [f"  majority band being unwound: "
+                  f"{', '.join(unwound)}"]
+    excluded = flow.get("excluded_funds") or []
+    if excluded:
+        lines += ["  excluded: " + "; ".join(f"{e['fund_id']} ({e['reason']})"
+                                             for e in excluded[:3])]
     return lines
 
 
@@ -433,6 +464,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--vote-floor", choices=("common", "none"))
     ap.add_argument("--asof", help="p3: request date for fundamentals (YYYY-MM-DD)")
     ap.add_argument("--max-files", type=int, help="p1: Stage 0 upper bound (measurement only)")
+    ap.add_argument("--prior-holdings",
+                    help="p4: an earlier run's holdings.json or work_bundle.zip (consensus flow)")
     ap.add_argument("--replay-dir", help="offline run from recorded inputs")
     ap.add_argument("--work-dir")
     ap.add_argument("--outputs-dir")
