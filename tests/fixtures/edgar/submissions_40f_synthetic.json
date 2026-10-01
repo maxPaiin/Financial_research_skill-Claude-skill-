@@ -1,0 +1,9 @@
+{
+ "_synthetic": "Hand-made for v0.4 A2, not recorded from SEC: the submissions shape of a Canadian MJDS filer whose annual report is a 40-F, newest filing first.",
+ "cik": 9999998,
+ "name": "SYNTHETIC CANADIAN ISSUER",
+ "filings": {"recent": {
+  "form": ["6-K", "6-K", "40-F", "6-K", "SC 13G/A", "40-F"],
+  "filingDate": ["2026-08-01", "2026-05-02", "2026-03-10", "2026-02-12", "2026-02-01", "2025-03-11"]
+ }}
+}

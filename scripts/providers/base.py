@@ -38,6 +38,13 @@ class FundamentalsRecord:
     the snapshot date (yfinance). The two diverge: a request on 2025-05-21
     against EDGAR returns 10-K data whose period ended 2024-12-31. Reports
     show `data_asof` to disclose actual fundamental-data freshness per stock.
+
+    v0.34: `roe_undefined_years` lists fiscal years whose ROE was left
+    undefined because equity was zero or negative (a loss over negative equity
+    would otherwise read as a positive ROE). `taxonomy` and
+    `reporting_currency` say which XBRL taxonomy and which unit the ratios were
+    built from; they are display-only — ratios are dimensionless, so a
+    TWD-reporting filer's ROE needs no conversion.
     """
     ticker: str
     asof: date
@@ -50,6 +57,9 @@ class FundamentalsRecord:
     adv: Optional[DataPoint] = None                                   # avg daily volume USD
     is_adr: bool = False
     data_asof: Optional[date] = None                                  # M4 Level 2
+    roe_undefined_years: list[int] = field(default_factory=list)      # v0.34 F10
+    taxonomy: Optional[str] = None                                    # "us-gaap" | "ifrs-full"
+    reporting_currency: Optional[str] = None                          # ISO-4217 unit of the ratios
 
 
 class FundamentalsProvider(ABC):

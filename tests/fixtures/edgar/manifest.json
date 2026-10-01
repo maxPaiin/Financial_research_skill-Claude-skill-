@@ -1,0 +1,72 @@
+{
+ "recorded_on": "2026-10-01",
+ "recorded_by": "scripts/dev/record_fixtures.py",
+ "source": {
+  "ticker_map": "https://www.sec.gov/files/company_tickers_exchange.json",
+  "companyfacts": "https://data.sec.gov/api/xbrl/companyfacts/",
+  "submissions": "https://data.sec.gov/submissions/"
+ },
+ "trim": "provider concepts only, last 8 years; first 60 recent forms",
+ "exchange_sample_missing_tickers": [
+  "TCEHY"
+ ],
+ "fixtures": {
+  "usd_10k": {
+   "ticker": "AAPL",
+   "cik": 320193,
+   "exchange": "Nasdaq",
+   "files": [
+    "facts_320193.json",
+    "submissions_320193.json"
+   ],
+   "yields_at_recording": {
+    "taxonomy": "us-gaap",
+    "reporting_currency": "USD",
+    "roe_defined_years": 5,
+    "roe_undefined_years": [],
+    "debt_equity": 0.7654,
+    "data_asof": "2025-09-27"
+   }
+  },
+  "ifrs_twd": {
+   "ticker": "TSM",
+   "cik": 1046179,
+   "exchange": "NYSE",
+   "files": [
+    "facts_1046179.json",
+    "submissions_1046179.json"
+   ],
+   "yields_at_recording": {
+    "taxonomy": "ifrs-full",
+    "reporting_currency": "TWD",
+    "roe_defined_years": 5,
+    "roe_undefined_years": [],
+    "debt_equity": 0.0075,
+    "data_asof": "2024-12-31"
+   }
+  },
+  "negative_equity": {
+   "ticker": "MCD",
+   "cik": 63908,
+   "exchange": "NYSE",
+   "files": [
+    "facts_63908.json",
+    "submissions_63908.json"
+   ],
+   "yields_at_recording": {
+    "taxonomy": "us-gaap",
+    "reporting_currency": "USD",
+    "roe_defined_years": 0,
+    "roe_undefined_years": [
+     2021,
+     2022,
+     2023,
+     2024,
+     2025
+    ],
+    "debt_equity": null,
+    "data_asof": "2025-12-31"
+   }
+  }
+ }
+}

@@ -1,0 +1,17 @@
+{
+ "_synthetic": "Hand-made for v0.4 A2, not recorded from SEC: a companyfacts document with no usable facts (dei share count and an unrelated revenue concept only). The provider must return None so the registry falls back to yfinance.",
+ "cik": 9999999,
+ "entityName": "SYNTHETIC NO USABLE FACTS INC",
+ "facts": {
+  "dei": {
+   "EntityCommonStockSharesOutstanding": {"units": {"shares": [
+    {"end": "2025-12-31", "val": 1000000, "form": "10-K", "filed": "2026-02-15"}
+   ]}}
+  },
+  "us-gaap": {
+   "Revenues": {"units": {"USD": [
+    {"start": "2025-01-01", "end": "2025-12-31", "val": 5000000, "form": "10-K", "filed": "2026-02-15"}
+   ]}}
+  }
+ }
+}

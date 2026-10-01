@@ -1,0 +1,412 @@
+{
+ "fields": [
+  "cik",
+  "name",
+  "ticker",
+  "exchange"
+ ],
+ "data": [
+  [
+   1045810,
+   "NVIDIA CORP",
+   "NVDA",
+   "Nasdaq"
+  ],
+  [
+   320193,
+   "Apple Inc.",
+   "AAPL",
+   "Nasdaq"
+  ],
+  [
+   1652044,
+   "Alphabet Inc.",
+   "GOOGL",
+   "Nasdaq"
+  ],
+  [
+   789019,
+   "MICROSOFT CORP",
+   "MSFT",
+   "Nasdaq"
+  ],
+  [
+   1018724,
+   "AMAZON COM INC",
+   "AMZN",
+   "Nasdaq"
+  ],
+  [
+   1326801,
+   "Meta Platforms, Inc.",
+   "META",
+   "Nasdaq"
+  ],
+  [
+   1730168,
+   "Broadcom Inc.",
+   "AVGO",
+   "Nasdaq"
+  ],
+  [
+   1318605,
+   "Tesla, Inc.",
+   "TSLA",
+   "Nasdaq"
+  ],
+  [
+   723125,
+   "MICRON TECHNOLOGY INC",
+   "MU",
+   "Nasdaq"
+  ],
+  [
+   1067983,
+   "BERKSHIRE HATHAWAY INC",
+   "BRK-B",
+   "NYSE"
+  ],
+  [
+   59478,
+   "ELI LILLY & Co",
+   "LLY",
+   "NYSE"
+  ],
+  [
+   2488,
+   "ADVANCED MICRO DEVICES INC",
+   "AMD",
+   "Nasdaq"
+  ],
+  [
+   19617,
+   "JPMORGAN CHASE & CO",
+   "JPM",
+   "NYSE"
+  ],
+  [
+   104169,
+   "Walmart Inc.",
+   "WMT",
+   "Nasdaq"
+  ],
+  [
+   1403161,
+   "VISA INC.",
+   "V",
+   "NYSE"
+  ],
+  [
+   937966,
+   "ASML HOLDING NV",
+   "ASML",
+   "Nasdaq"
+  ],
+  [
+   50863,
+   "INTEL CORP",
+   "INTC",
+   "Nasdaq"
+  ],
+  [
+   1141391,
+   "Mastercard Inc",
+   "MA",
+   "NYSE"
+  ],
+  [
+   1321655,
+   "Palantir Technologies Inc.",
+   "PLTR",
+   "Nasdaq"
+  ],
+  [
+   858877,
+   "CISCO SYSTEMS, INC.",
+   "CSCO",
+   "Nasdaq"
+  ],
+  [
+   909832,
+   "COSTCO WHOLESALE CORP /NEW",
+   "COST",
+   "Nasdaq"
+  ],
+  [
+   1341439,
+   "ORACLE CORP",
+   "ORCL",
+   "NYSE"
+  ],
+  [
+   707549,
+   "LAM RESEARCH CORP",
+   "LRCX",
+   "Nasdaq"
+  ],
+  [
+   6951,
+   "APPLIED MATERIALS INC /DE",
+   "AMAT",
+   "Nasdaq"
+  ],
+  [
+   731766,
+   "UNITEDHEALTH GROUP INC",
+   "UNH",
+   "NYSE"
+  ],
+  [
+   1973239,
+   "ARM HOLDINGS PLC /UK",
+   "ARM",
+   "Nasdaq"
+  ],
+  [
+   1065280,
+   "NETFLIX INC",
+   "NFLX",
+   "Nasdaq"
+  ],
+  [
+   1306965,
+   "Shell plc",
+   "SHEL",
+   "NYSE"
+  ],
+  [
+   1577552,
+   "Alibaba Group Holding Ltd",
+   "BABA",
+   "NYSE"
+  ],
+  [
+   97476,
+   "TEXAS INSTRUMENTS INC",
+   "TXN",
+   "Nasdaq"
+  ],
+  [
+   319201,
+   "KLA CORP",
+   "KLAC",
+   "Nasdaq"
+  ],
+  [
+   1000184,
+   "SAP SE",
+   "SAP",
+   "NYSE"
+  ],
+  [
+   1094517,
+   "TOYOTA MOTOR CORP/",
+   "TM",
+   "NYSE"
+  ],
+  [
+   811809,
+   "BHP Group Ltd",
+   "BHP",
+   "NYSE"
+  ],
+  [
+   51143,
+   "INTERNATIONAL BUSINESS MACHINES CORP",
+   "IBM",
+   "NYSE"
+  ],
+  [
+   804328,
+   "QUALCOMM INC/DE",
+   "QCOM",
+   "Nasdaq"
+  ],
+  [
+   1108524,
+   "Salesforce, Inc.",
+   "CRM",
+   "NYSE"
+  ],
+  [
+   1594805,
+   "SHOPIFY INC.",
+   "SHOP",
+   "Nasdaq"
+  ],
+  [
+   353278,
+   "NOVO NORDISK A S",
+   "NVO",
+   "NYSE"
+  ],
+  [
+   63908,
+   "MCDONALDS CORP",
+   "MCD",
+   "NYSE"
+  ],
+  [
+   1543151,
+   "Uber Technologies, Inc",
+   "UBER",
+   "NYSE"
+  ],
+  [
+   313838,
+   "Sony Group Corp",
+   "SONY",
+   "NYSE"
+  ],
+  [
+   1373715,
+   "ServiceNow, Inc.",
+   "NOW",
+   "NYSE"
+  ],
+  [
+   217410,
+   "UNILEVER PLC",
+   "UL",
+   "NYSE"
+  ],
+  [
+   896159,
+   "Chubb Ltd",
+   "CB",
+   "NYSE"
+  ],
+  [
+   1613103,
+   "Medtronic plc",
+   "MDT",
+   "NYSE"
+  ],
+  [
+   1737806,
+   "PDD Holdings Inc.",
+   "PDD",
+   "Nasdaq"
+  ],
+  [
+   829224,
+   "STARBUCKS CORP",
+   "SBUX",
+   "Nasdaq"
+  ],
+  [
+   1467373,
+   "Accenture plc",
+   "ACN",
+   "NYSE"
+  ],
+  [
+   895728,
+   "ENBRIDGE INC",
+   "ENB",
+   "NYSE"
+  ],
+  [
+   1017413,
+   "CANADIAN NATURAL RESOURCES Ltd",
+   "CNQ",
+   "NYSE"
+  ],
+  [
+   796343,
+   "ADOBE INC.",
+   "ADBE",
+   "Nasdaq"
+  ],
+  [
+   896878,
+   "INTUIT INC.",
+   "INTU",
+   "Nasdaq"
+  ],
+  [
+   1691493,
+   "Nu Holdings Ltd.",
+   "NU",
+   "NYSE"
+  ],
+  [
+   866787,
+   "AUTOZONE INC",
+   "AZO",
+   "NYSE"
+  ],
+  [
+   1549802,
+   "JD.com, Inc.",
+   "JD",
+   "Nasdaq"
+  ],
+  [
+   14693,
+   "BROWN FORMAN CORP",
+   "BF-B",
+   "NYSE"
+  ],
+  [
+   1046179,
+   "TAIWAN SEMICONDUCTOR MANUFACTURING CO LTD",
+   "TSM",
+   "NYSE"
+  ],
+  [
+   1652044,
+   "Alphabet Inc.",
+   "GOOG",
+   "Nasdaq"
+  ],
+  [
+   1067983,
+   "BERKSHIRE HATHAWAY INC",
+   "BRK-A",
+   "NYSE"
+  ],
+  [
+   1362988,
+   "Aircastle LTD",
+   "AYR",
+   null
+  ],
+  [
+   2156068,
+   "InoBat B.V.",
+   "INBT",
+   null
+  ],
+  [
+   1374310,
+   "Cboe Global Markets, Inc.",
+   "CBOE",
+   "CBOE"
+  ],
+  [
+   1708646,
+   "Goldman Sachs Physical Gold ETF",
+   "AAAU",
+   "CBOE"
+  ],
+  [
+   2070829,
+   "Contemporary Amperex Technology Co., Limited/ADR",
+   "CYATY",
+   "OTC"
+  ],
+  [
+   887028,
+   "RIO TINTO LTD",
+   "RTNTF",
+   "OTC"
+  ],
+  [
+   1158838,
+   "ADVANTEST CORP",
+   "ATEYY",
+   "OTC"
+  ]
+ ]
+}
