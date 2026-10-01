@@ -117,6 +117,11 @@ _CURRENCY_ALIASES = {
     "EURO": "EUR", "EUROS": "EUR", "€": "EUR",
     "£": "GBP", "STERLING": "GBP", "POUND STERLING": "GBP",
     "RMB": "CNY", "RENMINBI": "CNY",
+    # v0.4 C3: unambiguous Chinese currency names, as HK factsheets print them.
+    # A bare 元 stays ambiguous (above).
+    "美元": "USD", "美金": "USD", "港元": "HKD", "港幣": "HKD", "港币": "HKD",
+    "歐元": "EUR", "欧元": "EUR", "日圓": "JPY", "日元": "JPY", "日円": "JPY",
+    "人民幣": "CNY", "人民币": "CNY", "英鎊": "GBP", "英镑": "GBP",
 }
 
 

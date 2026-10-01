@@ -376,9 +376,12 @@ This is a Claude skill — put 7–11 HKMA-approved fund factsheet PDFs into **o
 For local development, individual scripts can be run directly:
 
 ```bash
-# Stage 0 — validate (+ SEC email gate). --out saves the result so Stage 1e can
-# reproduce the v0.32 regional advisories inside the consolidated input review.
-python scripts/validate_uploads.py /path/to/uploads --email you@example.com \
+# Stage 0 — validate (+ SEC email gate). Give it ONE .zip of the 7–11 factsheet PDFs
+# (v0.4; a folder also works on the CLI). The .zip is extracted to fr_uploads/extracted;
+# nested archives, paths escaping the archive and duplicate names are rejected.
+# --out saves the result so Stage 1e can reproduce the regional advisories.
+# (--max-files N exists for measurement runs only; the rule stays 7–11.)
+python scripts/validate_uploads.py /path/to/funds.zip --email you@example.com \
   --out fr_work/stage0_validation.json
 
 # Stage 1b-resolve (v0.34) — SEC listing check: a row is kept only if SEC's

@@ -18,7 +18,7 @@ description: Ranks US-listed equities, including ADRs, surfaced by 7-11 Hong Kon
 
 | Stage | Script / Actor | Reads | Writes |
 |---|---|---|---|
-| 0 | `validate_uploads.py <dir> --email <e> --out stage0_validation.json` | upload dir + email | stdout (errors) + `stage0_validation.json`; **regional advisories on stderr (G3, non-blocking)** |
+| 0 | `validate_uploads.py <uploads.zip \| dir> --email <e> --out stage0_validation.json` | **one .zip** (or a dir on the CLI) + email | stdout (errors) + `stage0_validation.json` (`input.pdf_dir` = where the PDFs are); **regional advisories on stderr (G3, non-blocking)** |
 | 1a | Claude (LLM) | each PDF (pdfplumber tables + LLM normalise) | `holdings.json` (one record per fund: **required `currency`**, **`benchmark` exactly as printed or null** (v0.4), `style` for display only) |
 | **1b-resolve** | `resolve_tickers.py --holdings holdings.json --email <e>` | `holdings.json`, SEC exchange file | `holdings.json` (each equity row + `ticker_resolved`, `listing_exchange`, `resolution`); rows needing review printed |
 | 1b–d | `extract_holdings.py --dedupe` | `holdings.json` | `holdings.json` (row kept **iff** `resolution.status == kept`; unresolved rows fall back to the labelled legacy format check; identical share classes merged (v0.4); `disclosure_depth`/`disclosure_floor`; `currency` normalised to ISO-4217/null, `thin_us_exposure` flagged) |
@@ -50,6 +50,16 @@ description: Ranks US-listed equities, including ADRs, surfaced by 7-11 Hong Kon
 > each ticker EDGAR and yfinance are consulted; overlapping fields are merged via
 > `providers/resolver.py` (first source wins on agreement; higher-confidence wins
 > on disagreement, confidence halved when diff > 20%). Conflicts → `data_provenance.json`.
+
+> **Intake (v0.4 C2) — one .zip, and never a PDF in the conversation.** On claude.ai, ask
+> the user to upload **one .zip** holding the 7–11 fund factsheet PDFs: uploaded PDFs are
+> placed into the conversation context, an archive is not. On Claude Code CLI, take the path
+> of the .zip (or of a folder of PDFs). `validate_uploads.py` extracts the .zip and rejects
+> nested archives, paths that climb out of the archive and duplicate file names — relay its
+> message. **Never Read a PDF** — not to check it, not to fix a field; the scripts read them,
+> and a flagged field is checked by rendering that one page. If loose PDFs were already
+> uploaded on claude.ai, run Stage 0 on the uploads folder rather than asking for a
+> re-upload (the context cost is already paid), and recommend a .zip next time.
 
 > **Stage 0 email gate (B1):** SEC requires a contact email in the EDGAR
 > User-Agent; without it EDGAR returns 403. In-conversation, ask the user for a
@@ -135,6 +145,7 @@ description: Ranks US-listed equities, including ADRs, surfaced by 7-11 Hong Kon
 |---|---|
 | Stage 0: no/invalid email | Halt; print the why+privacy message; ask user to supply an email |
 | Stage 0 fails (wrong PDF count, unreadable) | Stop; print guidance from `validate_uploads.py`; ask user to resubmit |
+| Stage 0 rejects the .zip (nested archive, path traversal, duplicate names, not a zip) | Relay the message; ask for one .zip of the PDFs themselves. Nothing was extracted |
 | Stage 0 raises a regional advisory | **Do not stop.** Relay the advisory (it names the file), then continue to Stage 1a |
 | Stage 1a: factsheet does not state a reporting currency | Write `currency: null`; **never default to USD**. The fund is kept; only its AUM is excluded downstream |
 | Fund reports AUM in a non-USD currency | Exclude that AUM from the days-to-liquidate aggregate and say so. **Never FX-convert**; holdings still count for consensus/overlap/style |

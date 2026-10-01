@@ -1,8 +1,19 @@
 """
 Stage 0: Validate uploaded fund prospectus PDFs + SEC EDGAR email gate (B1).
 
+Input (v0.4 C2): a directory of PDFs, or ONE .zip of them. On claude.ai the user
+uploads a single .zip — PDFs uploaded one by one are placed into the
+conversation context, where every page costs tokens; an archive is not, so the
+scripts read the PDFs and no PDF is ever read into the conversation. A .zip is
+extracted to <uploads>/extracted (paths.py). It is rejected outright — nothing
+is written — if it contains a nested archive, a member that would land outside
+the extraction directory (path traversal), two PDFs with the same file name,
+or an oversized member. macOS metadata (__MACOSX/, ._*) is ignored and other
+non-PDF members are skipped and listed.
+
 Checks:
-  1. Count of .pdf files in [7, 11] inclusive.
+  1. Count of .pdf files in [7, 11] inclusive (--max-files raises the upper
+     bound for measurement runs only; DEC-7 keeps 11 as the default).
   2. Each PDF opens with pypdf and yields >= 1 page of extractable text.
   3. Each PDF contains at least one holdings keyword.
   4. Each PDF contains a date pattern likely to be the asof date.
@@ -26,7 +37,8 @@ Advisory (v0.32 G3, NOT a check):
 Exits with code 0 on success, non-zero with an educational message on failure.
 
 Usage:
-  validate_uploads.py <upload_dir> [--email you@example.com] [--out result.json]
+  validate_uploads.py <upload_dir | uploads.zip> [--email you@example.com]
+                      [--out result.json] [--max-files N] [--extract-to DIR]
 The email may also be supplied via the EDGAR_CONTACT_EMAIL environment variable.
 `--out` writes this script's JSON result so Stage 1e can reproduce the Stage 0
 advisories inside the consolidated input-review block (G4).
@@ -37,7 +49,8 @@ import os
 import sys
 import re
 import json
-from pathlib import Path
+import zipfile
+from pathlib import Path, PurePosixPath
 
 try:
     from pypdf import PdfReader
@@ -47,6 +60,109 @@ except ImportError:
 
 MIN_FILES = 7
 MAX_FILES = 11
+
+# --- v0.4 C2: .zip intake -------------------------------------------------------
+_ARCHIVE_SUFFIXES = (".zip", ".rar", ".7z", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".zipx")
+# Operational guards against a decompression bomb; no effect on any result.
+_MAX_MEMBER_BYTES = 200 * 1024 * 1024
+_MAX_TOTAL_BYTES = 1024 * 1024 * 1024
+
+
+class IntakeError(ValueError):
+    """The upload cannot be used as given; the message says why."""
+
+
+def _is_metadata(parts: tuple[str, ...]) -> bool:
+    name = parts[-1] if parts else ""
+    return (bool(parts) and parts[0] == "__MACOSX") or name.startswith("._") \
+        or name in (".DS_Store", "Thumbs.db")
+
+
+def extract_zip(zip_path: Path, dest: Path) -> dict:
+    """Extract the PDFs of one .zip into `dest`, flattened. Raises IntakeError.
+
+    Every member is checked before anything is written, so a rejected archive
+    leaves nothing behind. Returns {"pdfs": [names], "skipped": [members]}.
+    """
+    try:
+        zf = zipfile.ZipFile(zip_path)
+    except zipfile.BadZipFile as e:
+        raise IntakeError(f"'{zip_path.name}' is not a readable .zip archive ({e}).")
+    with zf:
+        plan: list[tuple[zipfile.ZipInfo, str]] = []
+        skipped: list[str] = []
+        seen: dict[str, str] = {}
+        total = 0
+        for info in zf.infolist():
+            raw = info.filename
+            if info.is_dir():
+                continue
+            norm = raw.replace("\\", "/")
+            parts = PurePosixPath(norm).parts
+            if norm.startswith("/") or re.match(r"^[A-Za-z]:", norm) or ".." in parts:
+                raise IntakeError(
+                    f"'{zip_path.name}' contains '{raw}', which points outside the "
+                    "archive (path traversal). Re-create the .zip from the PDF files "
+                    "themselves.")
+            if _is_metadata(parts):
+                continue
+            lower = norm.lower()
+            if lower.endswith(_ARCHIVE_SUFFIXES):
+                raise IntakeError(
+                    f"'{zip_path.name}' contains another archive ('{raw}'). Put the "
+                    "PDFs directly into one .zip — no archives inside it.")
+            if not lower.endswith(".pdf"):
+                skipped.append(raw)
+                continue
+            if info.file_size > _MAX_MEMBER_BYTES:
+                raise IntakeError(f"'{raw}' is larger than {_MAX_MEMBER_BYTES // 2**20} MB "
+                                  "uncompressed; a fund factsheet never is.")
+            total += info.file_size
+            if total > _MAX_TOTAL_BYTES:
+                raise IntakeError(f"'{zip_path.name}' expands beyond "
+                                  f"{_MAX_TOTAL_BYTES // 2**30} GB.")
+            base = parts[-1]
+            if base.lower() in seen:
+                raise IntakeError(
+                    f"'{zip_path.name}' holds two PDFs named '{base}' ('{seen[base.lower()]}' "
+                    f"and '{raw}'). Rename one so every factsheet has its own name.")
+            seen[base.lower()] = raw
+            plan.append((info, base))
+
+        dest.mkdir(parents=True, exist_ok=True)
+        for stale in dest.glob("*.pdf"):        # a previous run's extraction
+            stale.unlink()
+        for info, base in plan:
+            written = 0
+            with zf.open(info) as src, open(dest / base, "wb") as out:
+                while chunk := src.read(1 << 20):
+                    written += len(chunk)
+                    if written > _MAX_MEMBER_BYTES:
+                        raise IntakeError(f"'{info.filename}' expands beyond its stated size.")
+                    out.write(chunk)
+    return {"pdfs": sorted(b for _, b in plan), "skipped": skipped}
+
+
+def prepare_input(upload: Path, extract_to: Path | None = None) -> tuple[Path, dict]:
+    """(directory holding the PDFs, input description) for a dir or a .zip."""
+    if upload.is_dir():
+        return upload, {"kind": "directory", "path": str(upload), "pdf_dir": str(upload),
+                        "skipped": []}
+    if upload.is_file() and upload.suffix.lower() == ".zip":
+        if extract_to is None:
+            from paths import uploads_dir, work_dir
+            extract_to = uploads_dir() / "extracted"
+            try:
+                extract_to.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                # A read-only uploads mount: extract next to the work files.
+                extract_to = work_dir() / "uploads_extracted"
+        result = extract_zip(upload, extract_to)
+        return extract_to, {"kind": "zip", "path": str(upload), "pdf_dir": str(extract_to),
+                            "skipped": result["skipped"]}
+    raise IntakeError(
+        f"'{upload}' is neither a directory nor a .zip file. Upload ONE .zip containing "
+        f"{MIN_FILES}-{MAX_FILES} fund factsheet PDFs.")
 
 # Holdings keywords accepted in English and Chinese (HK factsheets may be bilingual).
 # Downstream processing is English-only; these only gate validation.
@@ -212,20 +328,31 @@ def _has_date_pattern(text: str) -> bool:
     return bool(_DATE_RE.search(text))
 
 
-def validate(upload_dir: Path, email: str | None = None) -> dict:
-    pdfs = sorted(upload_dir.glob("*.pdf"))
-    n = len(pdfs)
+def validate(upload_dir: Path, email: str | None = None, max_files: int = MAX_FILES,
+             extract_to: Path | None = None) -> dict:
     errors = []
+    try:
+        upload_dir, intake = prepare_input(Path(upload_dir), extract_to)
+    except IntakeError as e:
+        return {"ok": False, "n_files": 0, "email_ok": valid_email(email),
+                "errors": [str(e)], "advisories": [], "files": [], "guidance": _GUIDANCE,
+                "input": {"kind": "rejected", "path": str(upload_dir), "pdf_dir": None,
+                          "skipped": []}}
+
+    # macOS writes ._name.pdf resource forks on some volumes; they are not PDFs.
+    pdfs = sorted(p for p in upload_dir.glob("*.pdf") if not p.name.startswith("._"))
+    n = len(pdfs)
 
     # B1: email gate — checked alongside the PDF requirements.
     email_ok = valid_email(email)
     if not email_ok:
         errors.append(EMAIL_GATE_MESSAGE)
 
-    if n < MIN_FILES or n > MAX_FILES:
+    if n < MIN_FILES or n > max_files:
         errors.append(
-            f"Got {n} PDF(s); need {MIN_FILES}–{MAX_FILES}. "
-            f"Please upload between {MIN_FILES} and {MAX_FILES} fund factsheet PDFs."
+            f"Got {n} PDF(s); need {MIN_FILES}–{max_files}. "
+            f"Please put between {MIN_FILES} and {max_files} fund factsheet PDFs into one "
+            ".zip and upload it."
         )
 
     file_status = []
@@ -294,12 +421,13 @@ def validate(upload_dir: Path, email: str | None = None) -> dict:
         "advisories": advisories,
         "files": file_status,
         "guidance": _GUIDANCE,
+        "input": intake,
     }
 
 
 def main():
     ap = argparse.ArgumentParser(description="Stage 0 validation + EDGAR email gate")
-    ap.add_argument("upload_dir", help="Directory containing the uploaded fund PDFs")
+    ap.add_argument("upload_dir", help="Directory of the fund PDFs, or ONE .zip of them")
     ap.add_argument(
         "--email",
         default=os.environ.get("EDGAR_CONTACT_EMAIL"),
@@ -310,14 +438,20 @@ def main():
         help="Optional path to write the JSON result (v0.32 G4). Stage 1e reads "
              "it via --stage0 to reproduce Stage 0 advisories in the input review.",
     )
+    ap.add_argument("--max-files", type=int, default=MAX_FILES,
+                    help=f"Upper bound on the PDF count (default {MAX_FILES}). For "
+                         "measurement runs only (DEC-7).")
+    ap.add_argument("--extract-to", help="Where a .zip is extracted (default: "
+                                         "<uploads>/extracted, see paths.py).")
     args = ap.parse_args()
 
     upload_dir = Path(args.upload_dir)
-    if not upload_dir.is_dir():
-        print(f"ERROR: {upload_dir} is not a directory", file=sys.stderr)
+    if not upload_dir.exists():
+        print(f"ERROR: {upload_dir} does not exist", file=sys.stderr)
         sys.exit(2)
 
-    result = validate(upload_dir, email=args.email)
+    result = validate(upload_dir, email=args.email, max_files=args.max_files,
+                      extract_to=Path(args.extract_to) if args.extract_to else None)
 
     # G3: advisories go to stderr so they are visible without disturbing the
     # JSON contract on stdout. They never affect `ok` or the exit code.
