@@ -1,6 +1,7 @@
 """
-v0.4 C2 (+ C3 later) — intake: one .zip (or a directory on the CLI), checked
-before anything is written, with the Stage 0 rules unchanged.
+v0.4 C2 + C3 — intake: one .zip (or a directory on the CLI), checked before
+anything is written, with the Stage 0 rules unchanged; then scripted Stage 1a
+(extract_candidates.py), the one-page render and the review corrections.
 
 Tests generate their own factsheets (tests/factsheets.py); no real fund PDF
 is ever opened.
@@ -157,6 +158,183 @@ class TestCountRuleUnchanged(_WithFactsheets):
                              capture_output=True, text=True, timeout=120)
         self.assertEqual(run.returncode, 0, run.stdout[-500:] + run.stderr[-500:])
         self.assertEqual(json.loads(out.read_text())["input"]["kind"], "zip")
+
+
+# -----------------------------------------------------------------------------
+# C3 — scripted Stage 1a
+# -----------------------------------------------------------------------------
+
+def _have_pdfplumber() -> bool:
+    try:
+        import pdfplumber  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+@unittest.skipUnless(factsheets.have_reportlab() and _have_pdfplumber(),
+                     "reportlab and pdfplumber are required")
+class TestExtractCandidates(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+
+    def extract(self, **kw) -> dict:
+        import extract_candidates as ec
+        pdf = factsheets.make_factsheet(self.tmp / "f.pdf", **kw)
+        return ec.extract_fund(pdf, "F1")
+
+    def test_english_factsheet_fields(self):
+        c = self.extract()
+        f = {k: v["value"] for k, v in c["fields"].items()}
+        self.assertEqual(f, {
+            "fund_name": "Global Technology Equity Fund", "asof": "2026-03-31",
+            "currency": "USD", "total_aum": 4.2e9,
+            "benchmark": "MSCI AC World Information Technology Index",
+            "fund_isin": "LU0000000001", "nav_per_share": 87.31})
+        self.assertTrue(all(v["confidence"] == "high" for v in c["fields"].values()))
+        self.assertEqual(c["fields"]["total_aum"]["unit"], "million")
+        self.assertEqual(c["flags"], [])
+
+    def test_english_factsheet_rows(self):
+        rows = self.extract()["holdings"]["rows"]
+        self.assertEqual(len(rows), 10)
+        self.assertEqual(rows[0], {"name": "Apple Inc", "ticker_raw": "AAPL", "isin": None,
+                                   "weight": 0.071, "confidence": "high", "page": 1})
+        self.assertEqual(rows[5]["ticker_raw"], "2330 TT")
+        self.assertAlmostEqual(sum(r["weight"] for r in rows), 0.419, places=6)
+
+    def test_holdings_on_a_later_page(self):
+        c = self.extract(filler_pages=2)
+        self.assertEqual(c["holdings"]["page"], 3)
+        self.assertTrue(all(r["page"] == 3 for r in c["holdings"]["rows"]))
+
+    def test_currency_comes_from_what_is_printed(self):
+        c = self.extract(facts=["Fund size (HKD): 3,100 million", "Benchmark: S&P 500 Index"])
+        self.assertEqual(c["fields"]["currency"]["value"], "HKD")
+        bare = self.extract(facts=["Currency: $", "Fund size: $ 900 million"])
+        self.assertIsNone(bare["fields"]["currency"]["value"])
+        self.assertIn("F1.currency", [fl["path"] for fl in bare["flags"]])
+
+    def test_missing_fields_are_null_and_flagged_never_guessed(self):
+        c = self.extract(facts=["Fund size: USD 500 million"])
+        self.assertIsNone(c["fields"]["benchmark"]["value"])
+        self.assertIsNone(c["fields"]["fund_isin"]["value"])
+        self.assertIn("F1.benchmark", [fl["path"] for fl in c["flags"]])
+
+    def test_chinese_headers_and_units_best_effort(self):
+        import extract_candidates as ec
+        pdf = factsheets.make_cjk_factsheet(self.tmp / "zh.pdf")
+        import pdfplumber
+        with pdfplumber.open(str(pdf)) as doc:
+            if "十大持倉" not in (doc.pages[0].extract_text() or ""):
+                self.skipTest("CJK text extraction unavailable for this font")
+        c = ec.extract_fund(pdf, "F1")
+        f = {k: v["value"] for k, v in c["fields"].items()}
+        self.assertEqual((f["fund_name"], f["asof"], f["currency"], f["total_aum"]),
+                         ("環球科技股票基金", "2026-03-31", "USD", 4.2e9))
+        rows = c["holdings"]["rows"]
+        self.assertEqual([r["name"] for r in rows], ["蘋果", "微軟", "輝達", "台積電", "博通"])
+        self.assertEqual(rows[0]["weight"], 0.071)
+
+    def test_summary_is_short_and_names_apply_review_paths(self):
+        import extract_candidates as ec
+        c = self.extract(facts=["Currency: $"], holdings=factsheets.DEFAULT_HOLDINGS[:3])
+        lines = ec.summary_lines(c)
+        self.assertLessEqual(len(lines), ec.MAX_SUMMARY_LINES)
+        text = "\n".join(lines)
+        self.assertIn("`F1.currency`", text)
+        self.assertIn("`F1.holdings`", text)          # only 3 rows
+
+    def test_cli_writes_three_files_and_protects_a_reviewed_draft(self):
+        src = self.tmp / "pdfs"
+        factsheets.make_upload_set(src, 2)
+        out = self.tmp / "work"
+        cmd = [sys.executable, str(_REPO_ROOT / "scripts" / "extract_candidates.py"), str(src),
+               "--out-dir", str(out)]
+        run = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        for name in ("candidates.json", "candidates_summary.md", "holdings.json"):
+            self.assertTrue((out / name).exists(), name)
+        draft = json.loads((out / "holdings.json").read_text())
+        self.assertEqual([f["fund_id"] for f in draft["funds"]], ["F1", "F2"])
+        self.assertEqual(draft["funds"][0]["holdings"][0]["ticker_raw"], "AAPL")
+        draft["funds"][0]["review_log"] = ["set F1.currency=USD"]
+        (out / "holdings.json").write_text(json.dumps(draft))
+        again = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        self.assertEqual(again.returncode, 1)
+        self.assertIn("--force", again.stderr)
+        forced = subprocess.run(cmd + ["--force"], capture_output=True, text=True, timeout=120)
+        self.assertEqual(forced.returncode, 0, forced.stderr)
+
+    def test_draft_feeds_the_listing_check_and_extract_holdings(self):
+        import extract_candidates as ec
+        from extract_holdings import filter_fund_holdings
+        record = ec.draft_record(self.extract())
+        kept, scope = filter_fund_holdings(record)       # legacy path: no resolution yet
+        self.assertIn("AAPL", [h["ticker_normalized"] for h in kept])
+        self.assertNotIn("2330 TT", [h["ticker_normalized"] for h in kept])
+        self.assertEqual(scope["disclosure_depth"], 10)
+
+
+@unittest.skipUnless(factsheets.have_reportlab() and _have_pdfplumber(),
+                     "reportlab and pdfplumber are required")
+class TestRenderPage(unittest.TestCase):
+    def test_one_page_to_png(self):
+        from render_page import render
+        with tempfile.TemporaryDirectory() as tmp:
+            pdf = factsheets.make_factsheet(Path(tmp) / "f.pdf", filler_pages=1)
+            out = render(pdf, 2, dpi=60, out=Path(tmp) / "p2.png")
+            self.assertEqual(out.read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
+            with self.assertRaises(ValueError):
+                render(pdf, 9, out=Path(tmp) / "p9.png")
+
+
+class TestApplyReview(unittest.TestCase):
+    def _data(self):
+        return {"funds": [{"fund_id": "F1", "currency": None, "benchmark": None,
+                           "holdings": [{"name": f"N{i}", "ticker_raw": None, "isin": None,
+                                         "weight": 0.01 * (i + 1)} for i in range(5)],
+                           "review_flags": ["F1.currency", "F1.holdings[1]", "F1.holdings[3]"]}]}
+
+    def test_set_append_delete_and_flags(self):
+        from apply_review import apply
+        data = self._data()
+        apply(data, ["F1.currency=USD", "F1.holdings[3].weight=4.5%",
+                     "F1.holdings[5].name=Visa Inc", "F1.holdings[5].weight=0.012"],
+              ["F1.holdings[1]"])
+        fund = data["funds"][0]
+        self.assertEqual(fund["currency"], "USD")
+        self.assertEqual([r["name"] for r in fund["holdings"]], ["N0", "N2", "N3", "N4", "Visa Inc"])
+        self.assertEqual(fund["holdings"][2]["weight"], 0.045)
+        self.assertEqual(fund["review_flags"], [])
+        self.assertEqual(len(fund["review_log"]), 5)
+
+    def test_bad_input_changes_nothing(self):
+        import subprocess as sp
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "holdings.json"
+            path.write_text(json.dumps(self._data()))
+            before = path.read_bytes()
+            for args in (["--set", "F1.holdings[0].weight=7"], ["--set", "F9.currency=USD"],
+                         ["--set", "F1.colour=red"], ["--set", "F1.holdings[9].name=x"],
+                         ["--delete", "F1.holdings[42]"]):
+                with self.subTest(args=args):
+                    run = sp.run([sys.executable, str(_REPO_ROOT / "scripts" / "apply_review.py"),
+                                  "--holdings", str(path), *args],
+                                 capture_output=True, text=True, timeout=60)
+                    self.assertEqual(run.returncode, 1, run.stdout)
+                    self.assertIn("nothing was changed", run.stderr)
+                    self.assertEqual(path.read_bytes(), before)
+
+    def test_a_changed_row_is_resolved_again(self):
+        from apply_review import apply
+        data = self._data()
+        data["funds"][0]["holdings"][0].update(resolution={"status": "unresolved_name"},
+                                               ticker_resolved=None)
+        apply(data, ["F1.holdings[0].ticker_raw=AAPL"], [])
+        self.assertNotIn("resolution", data["funds"][0]["holdings"][0])
 
 
 if __name__ == "__main__":

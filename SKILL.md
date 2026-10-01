@@ -19,7 +19,8 @@ description: Ranks US-listed equities, including ADRs, surfaced by 7-11 Hong Kon
 | Stage | Script / Actor | Reads | Writes |
 |---|---|---|---|
 | 0 | `validate_uploads.py <uploads.zip \| dir> --email <e> --out stage0_validation.json` | **one .zip** (or a dir on the CLI) + email | stdout (errors) + `stage0_validation.json` (`input.pdf_dir` = where the PDFs are); **regional advisories on stderr (G3, non-blocking)** |
-| 1a | Claude (LLM) | each PDF (pdfplumber tables + LLM normalise) | `holdings.json` (one record per fund: **required `currency`**, **`benchmark` exactly as printed or null** (v0.4), `style` for display only) |
+| **1a-auto** | `extract_candidates.py <pdf_dir>` | the PDFs (pdfplumber; never Claude) | `candidates.json`, `candidates_summary.md` (≤ 15 lines/fund, flags), draft `holdings.json` |
+| **1a-review** | Claude: reads `candidates_summary.md` only; `render_page.py` for a flagged field; `apply_review.py` to fix | summary + one page PNG per flag | `holdings.json` (**required `currency`**, **`benchmark` exactly as printed or null**, `style` for display only) |
 | **1b-resolve** | `resolve_tickers.py --holdings holdings.json --email <e>` | `holdings.json`, SEC exchange file | `holdings.json` (each equity row + `ticker_resolved`, `listing_exchange`, `resolution`); rows needing review printed |
 | 1b–d | `extract_holdings.py --dedupe` | `holdings.json` | `holdings.json` (row kept **iff** `resolution.status == kept`; unresolved rows fall back to the labelled legacy format check; identical share classes merged (v0.4); `disclosure_depth`/`disclosure_floor`; `currency` normalised to ISO-4217/null, `thin_us_exposure` flagged) |
 | 1e | `layer1_report.py --stage0` | `holdings.json`, `stage0_validation.json` | `layer1_extraction.md` (**opens with the consolidated input review, G4**) |
@@ -67,6 +68,16 @@ description: Ranks US-listed equities, including ADRs, surfaced by 7-11 Hong Kon
 > position (placed ONLY in the SEC request header; not stored or sent anywhere
 > else). Pass it via `--email` to `validate_uploads.py` and `fetch_fundamentals.py`
 > (or set `EDGAR_CONTACT_EMAIL`). No valid email → **halt**.
+
+> **Stage 1a (v0.4 C3) — scripts extract, Claude reviews only what is flagged.**
+> 1. `extract_candidates.py <input.pdf_dir>` writes the summary and a draft `holdings.json`.
+>    Read **only** `candidates_summary.md` — never a PDF, never `candidates.json` whole.
+> 2. For each flagged path: `render_page.py <pdf> --page N` and look at that one PNG, then fix
+>    it with `apply_review.py --set <path>=<value>` (`--delete` drops a junk row; an index equal
+>    to the row count appends one). Weights as fractions (`0.031`) or with `%` (`3.1%`).
+> 3. **Never guess `currency` or `benchmark`**: if the page does not print it, it stays `null`.
+>    A ticker or ISIN may be added only when it is printed on the page.
+> 4. Optionally set each fund's `style` (display only) from the name and benchmark shown.
 
 > **Stage 1b-resolve (v0.34):** a holding is in scope only if SEC's exchange file lists it on
 > Nasdaq, NYSE or CBOE. The ticker is checked before the ISIN (ACN, MDT, CB carry IE/CH ISINs and
@@ -150,7 +161,7 @@ description: Ranks US-listed equities, including ADRs, surfaced by 7-11 Hong Kon
 | Stage 1a: factsheet does not state a reporting currency | Write `currency: null`; **never default to USD**. The fund is kept; only its AUM is excluded downstream |
 | Fund reports AUM in a non-USD currency | Exclude that AUM from the days-to-liquidate aggregate and say so. **Never FX-convert**; holdings still count for consensus/overlap/style |
 | Accepted fund has 20–35% US weight | Flag `thin_us_exposure`; **accept in full, do not down-weight its consensus vote**; report it in Layer 1, Layer 2 and Appendix 3 |
-| Stage 1a: pdfplumber finds no table grid | Fall back to flat-text + LLM; if still < 5 US holdings, reject that fund |
+| Stage 1a: the script finds no holdings table (flag `Fn.holdings`) | Render that page; add the rows with `apply_review.py` from the image (append at index == row count). If the factsheet has no holdings table, leave it — Stage 1c rejects the fund |
 | Stage 1a: fund has < 5 US holdings or < 20% AUM weight | Reject that fund; continue if >= 7 remain; else halt |
 | Post-rejection fund count < 7 | Halt; tell user which PDFs failed and why |
 | Stage 1b-resolve: SEC exchange file unavailable | Stop the listing check (the script exits 1); retry, or pass `--sec-file` with a saved copy. Never fall back to guessing from ticker formats |

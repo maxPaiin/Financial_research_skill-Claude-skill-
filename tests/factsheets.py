@@ -66,17 +66,42 @@ def make_factsheet(path: Path, *, fund_name: str = "Global Technology Equity Fun
     return path
 
 
+# TrueType CJK fonts embed a Unicode map, as real HK factsheets do; reportlab's
+# built-in CID fonts do not, and their text comes back garbled.
+_CJK_TTF_CANDIDATES = [
+    "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+    "/Library/Fonts/Arial Unicode.ttf",
+    "/usr/share/fonts/truetype/arphic/uming.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+]
+
+
+def _cjk_font() -> str:
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+    from reportlab.pdfbase.ttfonts import TTFont
+    for candidate in _CJK_TTF_CANDIDATES:
+        if Path(candidate).exists():
+            try:
+                pdfmetrics.registerFont(TTFont("CJKTest", candidate))
+                return "CJKTest"
+            except Exception:  # noqa: BLE001 — try the next one
+                continue
+    pdfmetrics.registerFont(UnicodeCIDFont("MSung-Light"))
+    return "MSung-Light"
+
+
 def make_cjk_factsheet(path: Path) -> Path:
-    """A Traditional Chinese factsheet drawn with a CID font (best effort)."""
+    """A Traditional Chinese factsheet (best effort: a TrueType CJK font when the
+    machine has one, else a CID font whose text may not extract)."""
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
-    from reportlab.pdfbase import pdfmetrics
-    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
     from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-    pdfmetrics.registerFont(UnicodeCIDFont("MSung-Light"))
-    style = ParagraphStyle("zh", fontName="MSung-Light", fontSize=11, leading=15)
+    font = _cjk_font()
+    style = ParagraphStyle("zh", fontName=font, fontSize=11, leading=15)
     story = [Paragraph("環球科技股票基金", style),
              Paragraph("資料截至 2026年3月31日", style),
              Paragraph("基本貨幣：美元", style),
@@ -86,7 +111,7 @@ def make_cjk_factsheet(path: Path) -> Path:
     data = [["名稱", "比重 (%)"], ["蘋果", "7.1"], ["微軟", "6.4"], ["輝達", "5.9"],
             ["台積電", "3.5"], ["博通", "4.2"]]
     table = Table(data)
-    table.setStyle(TableStyle([("FONTNAME", (0, 0), (-1, -1), "MSung-Light"),
+    table.setStyle(TableStyle([("FONTNAME", (0, 0), (-1, -1), font),
                                ("GRID", (0, 0), (-1, -1), 0.5, colors.black)]))
     story.append(table)
     path.parent.mkdir(parents=True, exist_ok=True)

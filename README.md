@@ -296,7 +296,11 @@ written — is the overlay's input, and anything placed there can move a display
 │   │                                 #   sourcing rules, guardrails, what the gate enforces
 │   └── ticker_aliases.json           # v0.34: curated name -> ticker aliases (EN, zh-Hant, zh-Hans)
 ├── scripts/                          # Deterministic computation (no LLM calls)
-│   ├── validate_uploads.py           # + v0.32 G3 regional advisory (non-blocking)
+│   ├── paths.py                      # v0.4: runtime directories (claude.ai or Claude Code CLI)
+│   ├── validate_uploads.py           # Stage 0: one .zip (v0.4) or a folder; email gate; advisories
+│   ├── extract_candidates.py         # v0.4 Stage 1a: scripted factsheet extraction + summary
+│   ├── render_page.py                # v0.4: one factsheet page -> PNG, for a flagged field
+│   ├── apply_review.py               # v0.4: --set / --delete corrections to holdings.json
 │   ├── resolve_tickers.py            # v0.34 Stage 1b-resolve: SEC exchange-file listing check
 │   ├── extract_holdings.py           # + v0.32 currency normalisation + thin-exposure flag
 │   ├── overlap_analysis.py
@@ -383,6 +387,14 @@ For local development, individual scripts can be run directly:
 # (--max-files N exists for measurement runs only; the rule stays 7–11.)
 python scripts/validate_uploads.py /path/to/funds.zip --email you@example.com \
   --out fr_work/stage0_validation.json
+
+# Stage 1a (v0.4) — scripts read the PDFs: candidates.json, candidates_summary.md and a
+# draft holdings.json. Claude reads only the summary; for a flagged field it renders that
+# one page and fixes the field (never guessing currency or benchmark).
+python scripts/extract_candidates.py fr_uploads/extracted --out-dir fr_work
+python scripts/render_page.py fr_uploads/extracted/fund_03.pdf --page 2
+python scripts/apply_review.py --holdings fr_work/holdings.json \
+  --set F3.currency=USD --set F3.holdings[4].weight=0.031
 
 # Stage 1b-resolve (v0.34) — SEC listing check: a row is kept only if SEC's
 # exchange file lists it on Nasdaq, NYSE or CBOE (--sec-file replays a saved copy)
