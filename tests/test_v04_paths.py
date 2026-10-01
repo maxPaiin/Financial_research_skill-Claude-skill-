@@ -103,7 +103,7 @@ class TestDefaultsReachTheScripts(unittest.TestCase):
         # paths.work_dir() and crashed the CLI before argument parsing.
         for script in ("build_report.py", "layer1_report.py", "layer2_report.py",
                        "layer3_report.py", "extract_candidates.py", "render_page.py",
-                       "apply_review.py", "run_phase.py"):
+                       "apply_review.py", "run_phase.py", "bundle.py"):
             with self.subTest(script=script):
                 run = subprocess.run([sys.executable, str(_REPO_ROOT / "scripts" / script),
                                       "--help"], capture_output=True, text=True, timeout=60)

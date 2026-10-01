@@ -14,7 +14,7 @@ and a run costs one tool call per phase instead of one per stage (F17).
   —   Claude: M1 + M1b, scoped to the ranked names' industries
   p5  3a-bis coherence_audit
   —   Claude: 3b cards, 3c framing, M2, M3, H1
-  p6  3d layer3_report · Mg check_checkpoints · 4 build_report
+  p6  3d layer3_report · Mg check_checkpoints · 4 build_report · bundle.py save
 
 Usage:
   run_phase.py p1 <uploads.zip | folder> [--force]
@@ -351,11 +351,14 @@ def phase_p6(run: Run) -> list[str]:
     pdf = run.outputs / "financial_research_report.pdf"
     run.script("4", "build_report.py", "--work-dir", run.work, "--out", pdf,
                "--outputs-dir", run.outputs)
-    copied = sorted(p.name for p in run.outputs.glob("*") if p.name != pdf.name)
+    bundle = run.outputs / "work_bundle.zip"
+    run.script("bundle", "bundle.py", "save", "--work-dir", run.work, "--out", bundle)
+    copied = sorted(p.name for p in run.outputs.glob("*") if p.name not in (pdf.name, bundle.name))
     return [f"Layer 3: {w('layer3_ranked_advice.md')}",
             "Checkpoint gate: passed",
             f"PDF: {pdf}",
-            f"Copied to outputs: {len(copied)} file(s)"]
+            f"Copied to outputs: {len(copied)} file(s)",
+            f"Resume bundle: {bundle}"]
 
 
 RUNNERS: dict[str, Callable[[Run], list[str]]] = {

@@ -1,7 +1,7 @@
 """
-v0.4 C6 (+ C7 later) — the phase runner: a dry run of p2–p4 on fixtures
-produces the expected files and short summaries, state.json tracks progress,
-nothing stores the contact email, and failures name the stage.
+v0.4 C6 + C7 — the phase runner: a dry run of p2–p4 on fixtures produces the
+expected files and short summaries, state.json tracks progress, nothing stores
+the contact email, and failures name the stage; the resume bundle round-trips.
 
 Offline throughout (runner_fixtures.py + --replay-dir).
 
@@ -166,6 +166,7 @@ class TestFailuresAndStatus(_Workspace):
         self.assertEqual(code, 0, err)
         self.assertTrue((self.outputs / "financial_research_report.pdf").exists())
         self.assertIn("Checkpoint gate: passed", out)
+        self.assertTrue((self.outputs / "work_bundle.zip").exists())      # C7
 
 
 class TestPhaseOne(unittest.TestCase):
@@ -192,6 +193,89 @@ class TestPhaseOne(unittest.TestCase):
             self.assertTrue((tmp / "work" / "candidates_summary.md").exists())
             cfg = json.loads((tmp / "work" / "run_config.json").read_text())
             self.assertEqual(cfg["pdf_dir"], str(uploads / "extracted"))
+
+
+class TestResumeBundle(unittest.TestCase):
+    """C7: save -> load restores identical files and names the next phase."""
+
+    def _work(self, root: Path) -> Path:
+        work = root / "work"
+        (work / "rationale").mkdir(parents=True)
+        (work / "pages").mkdir()
+        (work / "state.json").write_text(json.dumps(
+            {"version": "0.4", "completed_phases": ["p1", "p2", "p3", "p4"], "next": "p5",
+             "input_hashes": {}}))
+        (work / "rankings.json").write_text(json.dumps({"ranked": [{"ticker": "AAA"}]}))
+        (work / "macro_checkpoint.md").write_text("Rates on hold. [Fed; Reuters]\n")
+        (work / "honest_framing.txt").write_text("Framing.\n")
+        (work / "rationale" / "AAA.txt").write_text("Rationale for AAA.\n")
+        (work / "factsheet.pdf").write_bytes(b"%PDF-1.4 not carried")
+        (work / "pages" / "f_p1.png").write_bytes(b"\x89PNG not carried")
+        return work
+
+    def test_round_trip_restores_identical_files(self):
+        from bundle import load, members, save
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            work = self._work(root)
+            names = save(work, root / "out" / "work_bundle.zip")
+            self.assertEqual(sorted(names), ["honest_framing.txt", "macro_checkpoint.md",
+                                             "rankings.json", "rationale/AAA.txt", "state.json"])
+            fresh = root / "fresh"
+            restored, state = load(root / "out" / "work_bundle.zip", fresh)
+            self.assertEqual(sorted(restored), sorted(names))
+            for name in names:
+                self.assertEqual((fresh / name).read_bytes(), (work / name).read_bytes(), name)
+            self.assertEqual(state["next"], "p5")
+            self.assertFalse((fresh / "factsheet.pdf").exists())
+            self.assertEqual(len(members(fresh)), len(names))
+
+    def test_cli_load_names_the_next_phase(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            work = self._work(root)
+            bundle = root / "b.zip"
+            env = {**os.environ, "FR_WORK_DIR": str(work)}
+            env.pop("EDGAR_CONTACT_EMAIL", None)
+            script = str(_REPO_ROOT / "scripts" / "bundle.py")
+            save = subprocess.run([sys.executable, script, "save", "--out", str(bundle)],
+                                  capture_output=True, text=True, env=env, timeout=60)
+            self.assertEqual(save.returncode, 0, save.stderr)
+            env["FR_WORK_DIR"] = str(root / "restored")
+            load = subprocess.run([sys.executable, script, "load", str(bundle)],
+                                  capture_output=True, text=True, env=env, timeout=60)
+            self.assertEqual(load.returncode, 0, load.stderr)
+            self.assertIn("Next: run_phase.py p5", load.stdout)
+
+    def test_unsafe_bundles_are_refused(self):
+        import zipfile
+        from bundle import BundleError, load
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for member in ("../state.json", "/abs/state.json", "inner.zip", "report.pdf",
+                           "pages/f_p1.png", "deep/a/b.json"):
+                with self.subTest(member=member):
+                    bad = root / "bad.zip"
+                    with zipfile.ZipFile(bad, "w") as zf:
+                        zf.writestr(member, "{}")
+                    with self.assertRaises(BundleError):
+                        load(bad, root / "w")
+                    self.assertFalse((root / "state.json").exists())
+
+    def test_a_save_that_would_carry_the_email_is_refused(self):
+        from bundle import BundleError, save
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.dict(os.environ, {"EDGAR_CONTACT_EMAIL": EMAIL}):
+            root = Path(tmp)
+            work = self._work(root)
+            (work / "notes.md").write_text(f"contact {EMAIL}\n")
+            with self.assertRaises(BundleError):
+                save(work, root / "b.zip")
+
+    def test_bundle_names_no_checkpoint_i2(self):
+        text = (_REPO_ROOT / "scripts" / "bundle.py").read_text(encoding="utf-8")
+        self.assertNotIn("important_notice", text)
 
 
 class TestRunnerNeverNamesTheNotice(unittest.TestCase):

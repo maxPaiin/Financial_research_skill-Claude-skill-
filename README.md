@@ -303,6 +303,7 @@ written — is the overlay's input, and anything placed there can move a display
 ├── scripts/                          # Deterministic computation (no LLM calls)
 │   ├── paths.py                      # v0.4: runtime directories (claude.ai or Claude Code CLI)
 │   ├── run_phase.py                  # v0.4: phase runner p1–p6 + status (short summaries)
+│   ├── bundle.py                     # v0.4: resume bundle — save / load the work dir (no PDFs)
 │   ├── validate_uploads.py           # Stage 0: one .zip (v0.4) or a folder; email gate; advisories
 │   ├── extract_candidates.py         # v0.4 Stage 1a: scripted factsheet extraction + summary
 │   ├── render_page.py                # v0.4: one factsheet page -> PNG, for a flagged field
@@ -402,6 +403,21 @@ python scripts/run_phase.py status                  # what has run, what is stal
 
 `--vote-basis presence` / `--vote-floor none` on `p3` are sensitivity runs; `--replay-dir`
 runs a phase offline from recorded inputs.
+
+**Resuming a run (v0.4).** `p6` also writes `work_bundle.zip` to the outputs directory — the
+work directory's JSON, Markdown and text checkpoints plus the rationale cards, never the PDFs.
+If a run is interrupted (a usage window ends, the claude.ai container resets), save the bundle
+at any point and hand it to a new session; it continues from the phase it names:
+
+```bash
+python scripts/bundle.py save                       # -> fr_outputs/work_bundle.zip
+python scripts/bundle.py load work_bundle.zip       # restores fr_work, prints "Next: run_phase.py pN"
+```
+
+On claude.ai, upload the `work_bundle.zip` together with the request to continue; the skill
+restores it and resumes. The loader refuses members outside the work directory, nested archives,
+PDFs and anything that is not a checkpoint file; a save that would contain the SEC contact email
+is refused.
 
 For local development, individual scripts can be run directly:
 
@@ -568,6 +584,7 @@ The layered `.md` checkpoints, the overlay's audit trail, and a final English-on
 | `important_notice_checkpoint.md`  | v0.33 — per-stock expectations bar + sentiment cycle, group-attributed and sourced; enters no score |
 | `coherence.json`                  | v0.31 — per-stock audit: three factor readings, pairwise verdicts, tier delta, contradiction text |
 | `financial_research_report.pdf`   | All of the above, assembled into a denser English PDF (18–26pp ceiling)      |
+| `work_bundle.zip`                 | v0.4 — resume bundle: the work dir's checkpoints, JSON and rationale cards (no PDFs); `bundle.py load` continues a run from it |
 
 All checkpoint files — including `coherence.json` — are copied to the outputs directory (`./fr_outputs` on the CLI)
 alongside the PDF (the container work dir is ephemeral and resets between sessions).
@@ -576,7 +593,8 @@ only worth something if a reader can check every demotion against the readings t
 
 Intermediate v0.31 working files (`macro_factors.json`, `sector_logic.json`,
 `etf_relative_strength.json`) stay in the work dir; they are inputs to the audit, and the audit
-itself is what gets shipped.
+itself is what gets shipped as a checkpoint. They do travel inside `work_bundle.zip`, so a
+resumed run has everything it needs.
 
 ---
 
