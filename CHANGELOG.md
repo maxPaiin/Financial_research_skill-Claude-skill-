@@ -9,11 +9,11 @@ released inside v0.4 (decision DEC-6 of the v0.4 update specification).
 
 ---
 
-## v0.4 — consensus signal v2 and a token-lean, portable runtime (in progress)
+## v0.4 — consensus signal v2 and a token-lean, portable runtime (2026-10-01)
 
-Built from the v0.4 update specification (findings F1–F20). The corrections land first as
-v0.34, below. Entries for the consensus signal (Phase B), the token and runtime architecture
-(Phase C) and the consensus flow (Phase D) are added here as each work package lands.
+Built from the v0.4 update specification (findings F1–F20): the consensus signal (Phase B),
+the token and runtime architecture (Phase C) and the optional consensus flow (Phase D). The
+corrections landed first as v0.34, below.
 
 - **The input rule changed:** the 7–11 fund factsheets (the fund sales documents) are
   uploaded as **one `.zip`**, not as individual PDFs.
@@ -108,6 +108,24 @@ claude.ai and in Claude Code CLI (F18).
   a step 25% of the time), so the specified test "pure drift produces 0 trades" could not hold.
   The threshold is therefore the two-sided bound. A 5,000-case property test shows that pure
   drift never crosses it.
+
+
+### Measured (specification §9) — pending
+
+The real-data validation needs the claude.ai usage meter and the maintainer's 2026-05-26 test
+set (seven USD technology funds), so it has not been run yet. To record it here:
+
+1. Run the `v0.33` tag end to end on the seven PDFs; note the usage meter at the start and end.
+2. Run `v0.4` on the same PDFs, uploaded as one .zip; note the meter the same way.
+3. Run `scripts/dev/compare_rankings.py --work-dir <dir>` twice: with the default vote basis and
+   with `--vote-basis presence`.
+4. Record the usage per run, the number of Read calls on PDFs (target 0), the number of fields
+   Claude had to review, and the rank differences. Each rank change should be explained by
+   F1–F7 or DEC-1.
+
+`MAX_FILES` for v0.41 is decided from these measurements only (DEC-7: it stays 11 until then).
+The offline dry run on generated fixtures (p1–p6, Apple through EDGAR from recorded filings)
+passes and is part of the test suite. It is not a substitute for this measurement.
 
 ---
 
