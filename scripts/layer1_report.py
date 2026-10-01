@@ -10,6 +10,9 @@ from the exit-liquidity aggregate (G1), thin-US-exposure flags (G2), Stage 0
 regional advisories (G3), and the input set's style distribution (A3). One block
 rather than warnings scattered across sections: the user reviews their input
 once, and the consensus caveat sits next to the evidence for it.
+
+v0.4 (A6) adds the US listing check to the same block: rows per fund by
+resolution status, and every dropped row with its reason.
 """
 
 import json
@@ -32,6 +35,72 @@ def _currency_label(fund: dict) -> str:
     if raw:
         return f"unstated (factsheet said '{raw}')"
     return "unstated"
+
+
+_LISTING_COLUMNS = [
+    ("Kept", ("kept",)),
+    ("Non-US line", ("non_us_listing",)),
+    ("OTC only", ("otc_only",)),
+    ("No exchange", ("no_exchange",)),
+    ("Unresolved", ("unresolved_ticker", "unresolved_name")),
+    ("Ambiguous", ("ambiguous_name", "ambiguous_listing")),
+    ("Legacy-dropped", ("legacy_dropped",)),
+]
+_MAX_DROPPED_LINES = 25
+
+
+def _listing_review(funds: list[dict]) -> list[str]:
+    """A6: what the US listing check decided, per fund and per dropped row."""
+    funds = [f for f in funds if f.get("scope_summary")]
+    lines = ["### US listing check", ""]
+    if not funds:
+        return lines + ["- No holdings were extracted.", ""]
+    methods = {f["fund_id"]: f["scope_summary"].get("listing_check") for f in funds}
+    if all(m == "sec_exchange_file" for m in methods.values()):
+        lines += ["- Every row was checked against SEC's exchange file and kept only when "
+                  "SEC lists it on Nasdaq, NYSE or CBOE. ADRs count; OTC lines and "
+                  "home-market lines do not. A non-US ISIN alone never excludes a "
+                  "US-listed share."]
+    else:
+        legacy = ", ".join(fid for fid, m in methods.items() if m != "sec_exchange_file")
+        lines += [f"- ⚠ Rows of {legacy} were not resolved against SEC's exchange file; the "
+                  "legacy ticker-format check decided them. It cannot recognise a bare "
+                  "OTC ticker, so treat those funds' US lists with caution."]
+    lines += [""]
+
+    counts = []
+    for f in funds:
+        scope = f["scope_summary"]
+        by_status = dict(scope.get("resolution_counts") or {})
+        legacy_dropped = sum(1 for r in scope.get("dropped_rows") or []
+                             if r.get("status") == "legacy_dropped")
+        if legacy_dropped:
+            by_status["legacy_dropped"] = legacy_dropped
+        if scope.get("listing_check") == "legacy_format_check":
+            by_status["kept"] = scope.get("n_holdings_kept_us_equity", 0)
+        counts.append((f, by_status))
+    shown = [(name, keys) for name, keys in _LISTING_COLUMNS
+             if any(by_status.get(k) for _, by_status in counts for k in keys)
+             or name == "Kept"]
+    lines += ["| Fund | " + " | ".join(name for name, _ in shown) + " |"]
+    lines += ["|---|" + "---|" * len(shown)]
+    for f, by_status in counts:
+        cells = [str(sum(by_status.get(k, 0) for k in keys)) for _, keys in shown]
+        lines += [f"| {f['fund_id']} | " + " | ".join(cells) + " |"]
+    lines += [""]
+
+    dropped = [(f["fund_id"], r) for f in funds
+               for r in f["scope_summary"].get("dropped_rows") or []]
+    if dropped:
+        lines += ["Dropped rows and why:", ""]
+        for fid, r in dropped[:_MAX_DROPPED_LINES]:
+            label = " / ".join(x for x in (r.get("ticker_raw"), r.get("name")) if x) or "?"
+            lines += [f"- {fid}: {label} — {r.get('status')}: {r.get('reason') or 'n/a'}"]
+        if len(dropped) > _MAX_DROPPED_LINES:
+            lines += [f"- … {len(dropped) - _MAX_DROPPED_LINES} more (see scope_summary "
+                      "in holdings.json)"]
+        lines += [""]
+    return lines
 
 
 def _input_review(data: dict, stage0: dict | None) -> list[str]:
@@ -57,6 +126,9 @@ def _input_review(data: dict, stage0: dict | None) -> list[str]:
     else:
         lines += ["- Funds rejected: 0"]
     lines += [""]
+
+    # --- A6: the SEC listing check ---
+    lines += _listing_review(funds)
 
     # --- G1: reporting currency + exit-liquidity exclusions ---
     census: dict[str, int] = {}

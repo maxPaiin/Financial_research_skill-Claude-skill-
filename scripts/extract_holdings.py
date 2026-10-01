@@ -2,9 +2,11 @@
 Stage 1 helper: US filtering, ticker normalization, currency normalization,
 deduplication, and PIT snapshot grouping.
 
-Reads holdings.json (written by Claude after parsing each fund PDF)
+Reads holdings.json (written at Stage 1a, then resolved by resolve_tickers.py)
 and produces:
-  - Per-fund scope_summary (US kept, non-US dropped, non-equity dropped)
+  - Per-fund scope_summary (US kept, non-US dropped, non-equity dropped; v0.4:
+    which listing check decided, counts by resolution status, and every
+    dropped row with its reason)
   - Per-fund normalised `currency` (ISO-4217 or null) — v0.32 G1.1
   - Per-fund `thin_us_exposure` flag (20–35% of AUM in US equity) — v0.32 G2
   - unique_universe array with n_funds_holding, weights, avg_weight, etc.
@@ -37,10 +39,20 @@ import argparse
 from pathlib import Path
 from collections import defaultdict
 
+# --- Listing check -----------------------------------------------------------
+# v0.4 (A6): a row carrying a `resolution` from resolve_tickers.py (SEC's
+# exchange file) is kept if and only if its status is "kept". The suffix
+# rules below are the LEGACY format check, used only for rows that were never
+# resolved, and labelled `legacy_format_check` in scope_summary. The legacy
+# check reads the ticker's format alone, so it cannot recognise a bare
+# 5-letter OTC ticker (TCEHY passes as US) — only the SEC lookup can.
+
 # Exchange suffixes that indicate non-US primary listings — drop these.
+# `.PK` and `.OB` (v0.34) mark over-the-counter lines: exchange-listed US
+# securities only (I5). Merely un-stripping them would still keep TCEHY.PK.
 _DROP_SUFFIXES = {
     ".T", ".HK", ".TW", ".L", ".SS", ".SZ", ".PA", ".DE", ".AS",
-    ".MI", ".MC", ".TO", ".AX", ".KS", ".SI", ".BK",
+    ".MI", ".MC", ".TO", ".AX", ".KS", ".SI", ".BK", ".PK", ".OB",
 }
 
 # US exchange suffixes to strip (normalize to clean ticker).
@@ -49,7 +61,7 @@ _DROP_SUFFIXES = {
 # legacy NYSE-American exchange flag. Stripping `.A` would conflate the two
 # Berkshire share classes — neither EDGAR nor yfinance would resolve `BRK`
 # to the correct row.
-_STRIP_SUFFIXES = {" US", ".O", ".N", ".OQ", ".OB", ".PK"}
+_STRIP_SUFFIXES = {" US", ".O", ".N", ".OQ"}
 
 # ISIN prefix for US listings.
 _US_ISIN_PREFIXES = {"US"}
@@ -178,20 +190,42 @@ def is_us_by_isin(isin: str | None) -> bool:
 
 def filter_fund_holdings(fund: dict) -> tuple[list[dict], dict]:
     """
-    Filter a fund's holdings to US equities only.
+    Filter a fund's holdings to US exchange-listed equities.
     Returns (kept_holdings, scope_summary).
+
+    A row resolved by resolve_tickers.py is kept if and only if its
+    resolution status is "kept" (A6); an unresolved row falls back to the
+    legacy format check. Every dropped row is listed with its reason.
     """
     raw_holdings = fund.get("holdings", [])
     kept, dropped_non_us, dropped_non_equity = [], [], []
+    dropped_rows: list[dict] = []
+    resolution_counts: dict[str, int] = {}
+    methods: set[str] = set()
 
     for h in raw_holdings:
         raw = h.get("ticker_raw") or h.get("ticker", "")
+        label = raw or h.get("name") or ""
         isin = h.get("isin")
 
         if is_non_equity(h):
-            dropped_non_equity.append(raw)
+            dropped_non_equity.append(label)
             continue
 
+        resolution = h.get("resolution")
+        if isinstance(resolution, dict) and resolution.get("status"):
+            methods.add("sec_exchange_file")
+            status = resolution["status"]
+            resolution_counts[status] = resolution_counts.get(status, 0) + 1
+            if status == "kept" and h.get("ticker_resolved"):
+                kept.append({**h, "ticker_normalized": h["ticker_resolved"]})
+            else:
+                dropped_non_us.append(label)
+                dropped_rows.append({"ticker_raw": raw or None, "name": h.get("name"),
+                                     "status": status, "reason": resolution.get("detail")})
+            continue
+
+        methods.add("legacy_format_check")
         normalized = normalize_us_ticker(raw)
 
         if normalized is None:
@@ -201,13 +235,23 @@ def filter_fund_holdings(fund: dict) -> tuple[list[dict], dict]:
                 normalized = h.get("ticker_resolved") or None
 
         if normalized is None:
-            dropped_non_us.append(raw)
+            dropped_non_us.append(label)
+            dropped_rows.append({"ticker_raw": raw or None, "name": h.get("name"),
+                                 "status": "legacy_dropped",
+                                 "reason": "legacy format check: not a US ticker form"})
             continue
 
         kept.append({**h, "ticker_normalized": normalized})
 
     weight_kept = sum(h.get("weight", 0) for h in kept)
     weight_dropped = sum(h.get("weight", 0) for h in raw_holdings) - weight_kept
+
+    if methods == {"sec_exchange_file"}:
+        listing_check = "sec_exchange_file"
+    elif methods == {"legacy_format_check"}:
+        listing_check = "legacy_format_check"
+    else:
+        listing_check = "mixed" if methods else None
 
     scope_summary = {
         "n_holdings_total": len(raw_holdings),
@@ -218,6 +262,9 @@ def filter_fund_holdings(fund: dict) -> tuple[list[dict], dict]:
         "tickers_dropped_non_equity": dropped_non_equity,
         "weight_kept": round(weight_kept, 4),
         "weight_dropped": round(weight_dropped, 4),
+        "listing_check": listing_check,
+        "resolution_counts": dict(sorted(resolution_counts.items())),
+        "dropped_rows": dropped_rows,
     }
     return kept, scope_summary
 

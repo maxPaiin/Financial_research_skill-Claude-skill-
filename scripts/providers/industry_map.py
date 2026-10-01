@@ -66,12 +66,17 @@ _RAW_TO_BUCKET: dict[str, str] = {
     "hotels restaurants leisure": "consumer_discretionary",
     "textiles apparel": "consumer_discretionary",
     "media": "consumer_discretionary",
+    # v0.34 A6 (F12): yfinance's own sector names. Without these AMZN, TSLA
+    # and every other "Consumer Cyclical" name fell to `other` — no sector
+    # ETF and no macro scope.
+    "consumer cyclical": "consumer_discretionary",
 
     # Consumer Staples
     "consumer staples": "consumer_staples",
     "food beverage tobacco": "consumer_staples",
     "household products": "consumer_staples",
     "personal products": "consumer_staples",
+    "consumer defensive": "consumer_staples",           # yfinance (F12)
 
     # Industrials
     "industrials": "industrials",

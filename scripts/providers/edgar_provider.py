@@ -379,6 +379,33 @@ class EDGARProvider(FundamentalsProvider):
         """True when the issuer's annual report is a 20-F or 40-F (A2.2)."""
         return self._detect_filing_type(cik) in FOREIGN_PRIVATE_ISSUER_FORMS
 
+    def annual_form(self, cik: int) -> Optional[str]:
+        """The newest annual-report form on record, or None when unknown.
+
+        Unlike `_detect_filing_type`, which defaults to 10-K for its source
+        tags, this says "unknown" — the listing check (A6) must not read a
+        missing submissions file as proof of a domestic filer.
+        """
+        data = self._get_json(_SUBMISSIONS_URL.format(cik=cik), f"submissions_{cik}")
+        if data is None:
+            return None
+        for form in data.get("filings", {}).get("recent", {}).get("form", []) or []:
+            base = str(form).split("/")[0].strip().upper()
+            if base in ANNUAL_FORMS:
+                return base
+        return None
+
+    def use_exchange_file(self, data: dict) -> int:
+        """Use a saved company_tickers_exchange.json instead of downloading it
+        (resolve_tickers.py --sec-file). Returns the number of rows loaded."""
+        rows = parse_exchange_file(data)
+        by_ticker: dict[str, TickerRow] = {}
+        for row in rows:
+            by_ticker.setdefault(row.ticker, row)
+        self._rows_by_ticker = by_ticker
+        self._name_index = None
+        return len(rows)
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
