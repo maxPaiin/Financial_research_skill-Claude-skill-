@@ -173,6 +173,7 @@ def _dp_from_dict(x: Optional[dict]) -> Optional[DataPoint]:
         source=x.get("source", ""),
         asof=asof,
         n_sources_agreed=int(x.get("n_sources_agreed", 1)),
+        period_end=_parse_date(x.get("period_end"), default=None),
     )
 
 
@@ -199,6 +200,9 @@ def record_from_dict(d: dict) -> FundamentalsRecord:
         adv=_dp_from_dict(d.get("adv")),
         is_adr=bool(d.get("is_adr", False)),
         data_asof=_parse_date(d.get("data_asof"), default=None),
+        roe_undefined_years=list(d.get("roe_undefined_years") or []),
+        taxonomy=d.get("taxonomy"),
+        reporting_currency=d.get("reporting_currency"),
     )
 
 

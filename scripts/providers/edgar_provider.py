@@ -601,17 +601,18 @@ class EDGARProvider(FundamentalsProvider):
                 undefined_years.append(end.year)
                 eq = None
             if eq is None:
-                roe_5y.append(DataPoint(value=None, confidence=0.0,
-                                        source=source_tag, asof=asof))
+                roe_5y.append(DataPoint(value=None, confidence=0.0, source=source_tag,
+                                        asof=asof, period_end=end))
             else:
-                roe_5y.append(DataPoint(value=round(ni_map[end] / eq, 4),
-                                        confidence=conf, source=source_tag, asof=asof))
+                roe_5y.append(DataPoint(value=round(ni_map[end] / eq, 4), confidence=conf,
+                                        source=source_tag, asof=asof, period_end=end))
         roe_5y = [DataPoint(value=None, confidence=0.0, source=source_tag, asof=asof)
                   ] * (_N_YEARS - len(roe_5y)) + roe_5y
 
         # Net income 5y (raw, for the persistence check), in the same unit.
         ni_5y: list[Optional[DataPoint]] = [
-            DataPoint(value=ni_map[end], confidence=conf, source=source_tag, asof=asof)
+            DataPoint(value=ni_map[end], confidence=conf, source=source_tag, asof=asof,
+                      period_end=end)
             for end in ends
         ]
         ni_5y = [None] * (_N_YEARS - len(ni_5y)) + ni_5y

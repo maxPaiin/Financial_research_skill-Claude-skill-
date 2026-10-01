@@ -63,6 +63,7 @@ def resolve(points: list[DataPoint]) -> DataPoint:
                 source=f"resolved:{valid[0].source}+{valid[1].source}",
                 asof=valid[0].asof,
                 n_sources_agreed=2,
+                period_end=valid[0].period_end,
             )
         else:
             best = max(valid, key=lambda p: p.confidence)
@@ -75,6 +76,7 @@ def resolve(points: list[DataPoint]) -> DataPoint:
                 source=best.source,
                 asof=best.asof,
                 n_sources_agreed=1,
+                period_end=best.period_end,
             )
     else:
         # 3+ sources: median
@@ -92,6 +94,7 @@ def resolve(points: list[DataPoint]) -> DataPoint:
             source=f"resolved:median({len(valid)})",
             asof=best.asof,
             n_sources_agreed=len(valid),
+            period_end=best.period_end,
         )
 
 

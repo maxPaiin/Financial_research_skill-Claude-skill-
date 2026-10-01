@@ -21,12 +21,19 @@ DEFAULT_CONFIDENCE: dict[str, float] = {
 
 @dataclass(frozen=True)
 class DataPoint:
-    """Single data value with provenance metadata."""
+    """Single data value with provenance metadata.
+
+    `period_end` (v0.34) is the fiscal period a series value describes — the
+    year end of an annual ROE or net-income point. None for snapshots and
+    trailing figures. The registry reconciles two sources only for the same
+    period.
+    """
     value: Optional[float]
     confidence: float               # 0.0–1.0
     source: str                     # e.g. "edgar:10-K-2024", "yfinance:2025-05"
     asof: date
     n_sources_agreed: int = 1
+    period_end: Optional[date] = None
 
 
 @dataclass

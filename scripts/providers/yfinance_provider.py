@@ -353,14 +353,17 @@ class yfinanceProvider(FundamentalsProvider):
             if rows:
                 for end, ni, eq in rows:
                     tag = f"yfinance:annual-{end.isoformat()}"
-                    ni_5y.append(DataPoint(value=ni, confidence=conf, source=tag, asof=asof))
+                    ni_5y.append(DataPoint(value=ni, confidence=conf, source=tag, asof=asof,
+                                           period_end=end))
                     if eq is not None and eq <= 0:
                         undefined_years.append(end.year)   # F10: never sign-flipped
                         eq = None
                     roe_5y.append(
-                        DataPoint(value=round(ni / eq, 4), confidence=conf, source=tag, asof=asof)
+                        DataPoint(value=round(ni / eq, 4), confidence=conf, source=tag,
+                                  asof=asof, period_end=end)
                         if eq is not None else
-                        DataPoint(value=None, confidence=0.0, source=tag, asof=asof))
+                        DataPoint(value=None, confidence=0.0, source=tag, asof=asof,
+                                  period_end=end))
                 equities = [eq for _, _, eq in rows if eq is not None]
                 latest_equity = rows[-1][2] if rows[-1][2] is not None else (
                     equities[-1] if equities else None)

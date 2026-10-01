@@ -6,16 +6,25 @@ Call order per ticker:
   2. yfinance (degraded PIT, confidence 0.5) — for fill-in and conflict resolution
   3. mark as unscored if both fail
 
-Overlapping fields (debt_equity, latest-year ROE) are merged through
-`resolver.resolve()`, which logs any disagreement to a module-level provenance
-log. The owner of the registry should call `flush_provenance()` at end of
-processing to write the log to disk.
+v0.34 (A4) — field-level fallback. Each field takes the EDGAR value when EDGAR
+has one, otherwise the yfinance value. The ROE series is a field too: when
+EDGAR has fewer than two defined years and yfinance has two or more, the
+yfinance series is used whole, with its own confidence and source tags — so an
+issuer EDGAR cannot read (or reads only partly) is scored on real yfinance
+annual data instead of dropping out of the ranking unseen (F7).
+
+Overlapping fields (debt_equity, the latest fiscal year of ROE) are merged
+through `resolver.resolve()`, which logs any disagreement to a module-level
+provenance log. A fiscal year is reconciled only against the same fiscal year:
+SEC's companyfacts can lag a filing (TSMC's FY2025 20-F, filed 2026-04, was
+not yet in it in 2026-10), and comparing EDGAR's FY2024 with yfinance's FY2025
+would log a conflict that does not exist. The owner of the registry should call
+`flush_provenance()` at end of processing to write the log to disk.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 from datetime import date
 from pathlib import Path
 from typing import Optional
@@ -26,6 +35,11 @@ from .resolver import flush_provenance as _flush_provenance, resolve
 from .yfinance_provider import yfinanceProvider
 
 log = logging.getLogger(__name__)
+
+# Two period ends name the same fiscal year when they are this close (Yahoo
+# reports month ends: Apple's 2025-09-27 year end arrives as 2025-09-30).
+_SAME_PERIOD_DAYS = 31
+_MIN_ROE_YEARS = 2
 
 
 def _merge_dp(
@@ -46,14 +60,38 @@ def _merge_dp(
     return resolve(candidates)
 
 
+def _defined(series: list[Optional[DataPoint]]) -> int:
+    return sum(1 for dp in series or [] if dp is not None and dp.value is not None)
+
+
+def _same_period(a: Optional[date], b: Optional[date]) -> bool:
+    return a is not None and b is not None and abs((a - b).days) <= _SAME_PERIOD_DAYS
+
+
+def _counterpart(latest: DataPoint, series: list[Optional[DataPoint]]) -> Optional[DataPoint]:
+    """yfinance's value for EDGAR's latest fiscal year, if it has one.
+
+    A lone trailing point (no period) is compared as v0.33 did; an annual
+    value for a different fiscal year is not a counterpart at all.
+    """
+    defined = [dp for dp in series or [] if dp is not None and dp.value is not None]
+    for dp in defined:
+        if _same_period(dp.period_end, latest.period_end):
+            return dp
+    if len(series or []) == 1 and defined and defined[0].period_end is None:
+        return defined[0]
+    return None
+
+
 class ProviderRegistry:
     """Orchestrates provider calls in priority order with multi-source resolution."""
 
-    def __init__(self, contact_email: Optional[str] = None):
+    def __init__(self, contact_email: Optional[str] = None, edgar=None, yfinance=None):
         # B1 (v0.3): the SEC contact email flows into the EDGAR User-Agent.
         # kwarg wins; otherwise EDGARProvider falls back to EDGAR_CONTACT_EMAIL.
-        self._edgar = EDGARProvider(contact_email=contact_email)
-        self._yfinance = yfinanceProvider()
+        # `edgar=` / `yfinance=` inject providers (tests, replayed runs).
+        self._edgar = edgar if edgar is not None else EDGARProvider(contact_email=contact_email)
+        self._yfinance = yfinance if yfinance is not None else yfinanceProvider()
 
     def fetch(
         self, ticker: str, asof: date
@@ -93,31 +131,34 @@ class ProviderRegistry:
         if yf_rec is None:
             return edgar_rec, "edgar"
 
-        # Fields EDGAR doesn't reliably provide — yfinance fills in
-        if edgar_rec.ev_ebitda is None:
-            edgar_rec.ev_ebitda = yf_rec.ev_ebitda
-        if edgar_rec.market_cap is None:
-            edgar_rec.market_cap = yf_rec.market_cap
-        if edgar_rec.adv is None:
-            edgar_rec.adv = yf_rec.adv
+        # Field level: EDGAR when present, otherwise yfinance.
+        for attr in ("ev_ebitda", "market_cap", "adv"):
+            if getattr(edgar_rec, attr) is None:
+                setattr(edgar_rec, attr, getattr(yf_rec, attr))
         if (edgar_rec.industry in (None, "other")
                 and yf_rec.industry not in (None, "other")):
             edgar_rec.industry = yf_rec.industry
+        if not any(dp is not None and dp.value is not None
+                   for dp in edgar_rec.net_income_5y or []):
+            edgar_rec.net_income_5y = list(yf_rec.net_income_5y or [])
 
-        # Overlapping fields — resolve through the conflict log
+        # Overlapping field — resolve through the conflict log
         edgar_rec.debt_equity = _merge_dp(
             edgar_rec.debt_equity, yf_rec.debt_equity
         )
 
-        # ROE: EDGAR has 5y annual; yfinance has trailing only (broadcast x5).
-        # Only the latest year is comparable — resolve against [-1].
-        if edgar_rec.roe_5y and yf_rec.roe_5y:
-            edgar_latest = edgar_rec.roe_5y[-1]
-            yf_latest = yf_rec.roe_5y[-1]
-            if (edgar_latest is not None and yf_latest is not None
-                    and edgar_latest.value is not None
-                    and yf_latest.value is not None):
-                edgar_rec.roe_5y[-1] = _merge_dp(edgar_latest, yf_latest)
+        # ROE series: too thin on EDGAR, real on yfinance -> yfinance, whole.
+        if (_defined(edgar_rec.roe_5y) < _MIN_ROE_YEARS
+                and _defined(yf_rec.roe_5y) >= _MIN_ROE_YEARS):
+            edgar_rec.roe_5y = list(yf_rec.roe_5y)
+            edgar_rec.roe_undefined_years = list(yf_rec.roe_undefined_years or [])
+        elif edgar_rec.roe_5y:
+            # The latest fiscal year, reconciled against the same fiscal year.
+            latest = edgar_rec.roe_5y[-1]
+            if latest is not None and latest.value is not None:
+                other = _counterpart(latest, yf_rec.roe_5y)
+                if other is not None:
+                    edgar_rec.roe_5y[-1] = _merge_dp(latest, other)
 
         return edgar_rec, "edgar+yfinance"
 
