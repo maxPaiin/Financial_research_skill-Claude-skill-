@@ -86,16 +86,21 @@ class PhaseError(RuntimeError):
 
 # --- Context ----------------------------------------------------------------------
 
+_PATH_KEYS = ("upload", "replay_dir")
+
+
 class Run:
+    # Every stage runs with cwd = the work dir, so a relative path from the command
+    # line is resolved against the caller's directory here, before any stage sees it.
     def __init__(self, args: argparse.Namespace):
-        self.work = Path(args.work_dir) if args.work_dir else work_dir()
-        self.outputs = Path(args.outputs_dir) if args.outputs_dir else outputs_dir()
+        self.work = (Path(args.work_dir) if args.work_dir else work_dir()).resolve()
+        self.outputs = (Path(args.outputs_dir) if args.outputs_dir else outputs_dir()).resolve()
         self.work.mkdir(parents=True, exist_ok=True)
         self.config = self._load("run_config.json")
         for key in _CONFIG_KEYS:
             value = getattr(args, key, None)
             if value is not None:
-                self.config[key] = str(value) if key in ("upload", "replay_dir") else value
+                self.config[key] = str(Path(value).resolve()) if key in _PATH_KEYS else value
         self.config.setdefault("vote_basis", "active")
         self.config.setdefault("vote_floor", "common")
         self.env = dict(os.environ)

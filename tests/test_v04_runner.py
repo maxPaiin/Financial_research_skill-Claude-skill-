@@ -143,6 +143,25 @@ class TestDryRunP2ToP4(_Workspace):
         self.assertEqual(state["next"], "p4")
 
 
+class TestRelativePaths(_Workspace):
+    def test_relative_paths_resolve_against_the_callers_directory(self):
+        # Regression: stages run with cwd = the work dir, so a relative
+        # --work-dir / --replay-dir / upload path used to resolve inside it.
+        cwd = os.getcwd()
+        os.chdir(self.work.parent)
+        self.addCleanup(os.chdir, cwd)
+        code, out, err = _run("p2", "--work-dir", "work", "--outputs-dir", "out",
+                              "--replay-dir", "replay", "--asof", "2026-10-01")
+        self.assertEqual(code, 0, err)
+        cfg = json.loads((self.work / "run_config.json").read_text())
+        self.assertEqual(Path(cfg["replay_dir"]), self.replay.resolve())
+        args = run_phase.argparse.Namespace(work_dir="work", outputs_dir="out",
+                                            upload="funds.zip", email=None)
+        run = run_phase.Run(args)
+        self.assertTrue(Path(run.config["upload"]).is_absolute())
+        self.assertEqual(run.work, self.work.resolve())
+
+
 class TestFailuresAndStatus(_Workspace):
     def test_a_phase_out_of_order_says_what_to_run(self):
         code, _, err = self.phase("p4")
