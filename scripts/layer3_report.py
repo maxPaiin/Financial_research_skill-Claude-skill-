@@ -37,6 +37,15 @@ _TIER_SLICES = {"A": (1, 5), "B": (6, 10), "C": (11, 15)}
 _BAND_LABELS = {"majority": "Majority consensus", "plural": "Plural consensus",
                 "single": "Single-fund conviction"}
 
+def _source_list() -> str:
+    """v0.41: the whitelisted institutions, named from references/source_whitelist.json."""
+    try:
+        import source_whitelist
+        return "; ".join(rec["name"] for rec in source_whitelist.load().values())
+    except Exception:  # noqa: BLE001 — the report still renders; the gate fails closed
+        return "a fixed list of central banks, official statistics agencies and named outlets"
+
+
 _METHODOLOGY = """## Methodology disclosure
 
 - **Universe**: HKMA-approved global funds distributed through HK private banking channels; identical share classes of one fund count once
@@ -47,7 +56,7 @@ _METHODOLOGY = """## Methodology disclosure
 - **Confidence-shrinkage on quality (v0.3)**: Q'' = c·Q + (1 − c)·10, where Q is the stock's ROE percentile and c the confidence of its ROE data (EDGAR 0.9, yfinance 0.5; v0.34: the ROE points only, not unrelated fill-ins). Unverifiable quality is pulled toward a low-but-non-zero anchor, so it cannot float a stock up its band; Q'' is not re-percentiled, so the penalty moves the stock's absolute position. Uncertainty is treated as a quality defect, not a neutral state
 - **Exit liquidity (v0.4)**: days-to-liquidate = (Σ AUM × weight over the holders that report AUM in USD) / average daily traded value — how many trading days those holders would need to sell together. It no longer affects rank. At 10 days or more (a round, uncalibrated line) the coherence overlay moves the stock down one display tier and its card carries a HIGH CROWDING flag. A stock without the inputs is marked as having no liquidity data
 - **Reporting-currency exclusion (v0.32)**: only funds that report AUM in USD enter the days-to-liquidate aggregate. Average daily traded value is always USD, so admitting an AUM reported in HKD or JPY would overstate days-to-liquidate by roughly the exchange rate. A fund reporting in another currency, or not stating one, is **excluded from that aggregate** (its holdings still count in full toward overlap and consensus). **No FX conversion is performed anywhere in this pipeline**, and an unstated currency is never assumed to be USD
-- **Macro/expectations source policy (v0.3)**: macro facts are primary-first — central-bank/official sources fetched by directed URL (Fed, ECB, BoJ + official statistics); open web search is reserved for the secondary/news layer. Every factual sentence in the appendices must be corroborated by >= 2 independent primary-tier sources (a HARD inclusion gate, not a soft discount) and carries per-sentence attribution. A claim traceable only to a low-trust source cannot obtain primary-tier corroboration and is therefore never written. This curated source policy is disclosed because filtering sources is itself a stance
+- **Macro/expectations source policy (v0.3, v0.41)**: macro and expectations facts come only from a fixed whitelist of primary sources — {source_list}. Pages are found by web search and fetched only when the result sits on a whitelisted domain; the checkpoint gate rejects any citation outside the list and any cited institution with no fetched page on record. Every factual sentence in the appendices must be corroborated by >= 2 independent whitelisted sources (a HARD inclusion gate, not a soft discount) and carries per-sentence attribution. A claim traceable only to a source outside the list is never written. This curated source policy is disclosed because filtering sources is itself a stance
 - **Provider routing**: EDGAR (confidence 0.9; us-gaap and ifrs-full filings, ratios in the issuer's reporting currency) → yfinance fallback field by field (confidence 0.5)
 - **Passed but unscored (v0.34)**: a stock that clears the screen with fewer than two defined ROE years (a trailing-only record, or equity at or below zero in most years) has no quality percentile and is not ranked; Layer 2 names each one, with its reason, under "Passed the screen but could not be scored"
 - **Sample size**: {n_funds} HKMA-approved funds — this is a small sample; results are NOT statistically significant{coherence_methodology}
@@ -294,6 +303,7 @@ def build_layer3_md(
         n_funds=n_funds,
         n_eff_run=n_eff if isinstance(n_eff, (int, float)) else 0.0,
         floor_text=f"{floor:.1%} this run" if isinstance(floor, (int, float)) else "off this run",
+        source_list=_source_list(),
         coherence_methodology=(_COHERENCE_METHODOLOGY if by_ticker else "")
         + (_FLOW_METHODOLOGY if by_ticker and "n_flow_contradictions" in (coherence or {})
            else ""),

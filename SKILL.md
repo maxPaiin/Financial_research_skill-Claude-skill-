@@ -90,7 +90,8 @@ Every file sits one level below this one; nothing needs to be read in advance.
 | 2d–2e, explaining the screen | `references/quality_screen.md` | whole file (56 lines) |
 | 2f, 3a, a `few_eligible` warning | `references/consensus_signal.md` | 5 vote rule, 6 bands, 7 anchored core |
 | 2f-iii, exit liquidity | `references/crowding_signal.md` | "Days-to-liquidate", "The currency gate" |
-| M1 | `references/macro_appendix.md` | "M1 — Macro fetch", "C2 — Source integrity" |
+| M1 | `references/macro_appendix.md` | "M1 — Macro fetch", "Retrieval protocol", "C2 — Source integrity" |
+| M1, M1b, M2, H1 — before the first search | `references/source_whitelist.json` | whole file |
 | M1, M1b | `references/coherence_overlay.md` | "E2.1 Macro factors", "E2.2 Sector logic" |
 | 3a-bis (after p5) | `references/coherence_overlay.md` | "The verdict…", "The exit-liquidity check" |
 | D2–D3, a prior snapshot supplied | `references/coherence_overlay.md` | "The consensus-flow check" |
@@ -128,7 +129,7 @@ the work dir.
 | 3a | p4 | `build_rankings.py` | `rankings.json` — **sole author of rank**, up to 15 |
 | 3a-bis-i | p4 | `etf_relative_strength.py` | `etf_relative_strength.json` (RS vs SPY, 3M/6M/12M) |
 | D2 | p4 | `consensus_flow.py` (only with `--prior-holdings`) | `consensus_flow.json` (flow per stock) |
-| M1 | — | Claude + directed fetch | `macro_checkpoint.md`, `macro_factors.json` |
+| M1 | — | Claude, search-first, whitelist-only | `macro_checkpoint.md`, `macro_factors.json`, `sources_log.json` |
 | M1b | — | Claude | `sector_logic.json` |
 | 3a-bis | p5 | `coherence_audit.py` | `coherence.json` (`rankings.json` untouched) |
 | 3b | — | Claude, 3 batches of 5 | `rationale/<TICKER>.txt` |
@@ -204,13 +205,15 @@ presence` and `p4`. Never switch silently.
 
 ### Stages M1–M3 — the macro subsystem
 
-- Primary-first directed fetch (Fed, ECB, BoJ, official statistics). **Hard gate: ≥ 2 primary-tier
-  sources per fact**, else the fact is not written. Per-sentence attribution; paraphrase, never
-  reproduce.
+- **Search first; fetch only whitelisted results (v0.41).** Never fetch a URL you built; fetch a
+  search result only if its domain is in `references/source_whitelist.json`; never retry a failed
+  fetch; at most 3 queries per fact; log every fetched page in `sources_log.json` (R1–R6 in
+  `references/macro_appendix.md`). **Hard gate: ≥ 2 whitelisted sources per fact**, else the fact
+  is not written. Per-sentence attribution; paraphrase, never reproduce.
 - **M1 and M1b run after 3a, scoped to the industries in `rankings.json`** (≤ 15 stocks; p4 prints
   them). The ranking reads no macro input (`TestRankingReadsNoMacro`), so the rank cannot depend on
-  M1. Sources, fetch policy and the gate are unchanged since v0.3 — only position and scope moved
-  (C5).
+  M1. Sources and the gate are unchanged since v0.3; v0.4 moved position and scope (C5), v0.41
+  replaced the fetch policy.
 - M1 writes `macro_checkpoint.md` — including the per-industry expectations-bar / sentiment-cycle
   facet that H1 uses — and `macro_factors.json` (rate-path and inflation-trend fields only). **The
   facet never goes into `macro_factors.json`**: that file feeds the overlay and can move a tier.
@@ -291,6 +294,10 @@ second disclaimer.
 
 **Macro, overlay and notice**
 - A macro claim has only one primary-tier source → do NOT write it (hard gate).
+- A fetch fails (`PROVENANCE_REQUIRED`, `url_not_allowed`, 401/403/404, paywall) → never retry
+  that URL; take the next whitelisted search result (R4).
+- Mg names a source that is not whitelisted or has no page in `sources_log.json` → cite a
+  whitelisted page you fetched, or drop the sentence. Never edit `source_whitelist.json` in a run.
 - No sector-ETF mapping or a sparse macro read → "insufficient data", tier unchanged — never
   treated as coherent, never a demotion.
 - A sector ETF quote fails → that sector's RS is insufficient data; the others are still audited.
@@ -329,10 +336,11 @@ WORK_DIR/                          (EPHEMERAL on claude.ai — resets between se
   candidates.json  candidates_summary.md  rationale/  honest_framing.txt              (v0.4)
   run_config.json  state.json                                                         (v0.4)
   consensus_flow.json                                 (v0.4 D2, only with a prior snapshot)
+  sources_log.json                          (v0.41, every page fetched in M1, M1b, M2, H1)
 
 OUTPUTS_DIR/                       (USER-VISIBLE — downloadable)
   financial_research_report.pdf
-  <all checkpoint .md files + coherence.json, copied by build_report.py — D5>
+  <all checkpoint .md files + coherence.json + sources_log.json, copied by build_report.py — D5>
   work_bundle.zip                  (refreshed after every phase — the resume point)
 ```
 
@@ -381,8 +389,10 @@ it must NOT claim the work dir persists.
   penalty.
 - **No industry-policy or company-level supply-chain claims** anywhere in the output (supplier
   relationships are not in EDGAR's structured data — the highest fabrication risk).
-- **Macro and expectations facts: ≥ 2 primary-tier sources (hard gate)**, per-sentence
-  attribution, no blacklist. Paraphrase fetched content; never reproduce it.
+- **Macro and expectations facts: ≥ 2 whitelisted sources (hard gate)** — the closed list in
+  `references/source_whitelist.json`, found by search, fetched only from whitelisted results
+  and logged in `sources_log.json` (v0.41); per-sentence attribution, no blacklist. Paraphrase
+  fetched content; never reproduce it.
 - **The Important Notice changes nothing it is placed after.** It never enters `Q''`, the
   consensus, `rankings.json` or `coherence.json`, and is not a coherence input. Deleting
   `important_notice_checkpoint.md` leaves every rank, tier and score bit-for-bit identical.

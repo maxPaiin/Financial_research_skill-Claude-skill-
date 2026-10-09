@@ -274,5 +274,27 @@ class TestCli(unittest.TestCase):
         self.assertIn("NO https://www.scmp.com/x", out.getvalue())
 
 
+class TestDocsFollowTheProtocol(unittest.TestCase):
+    """The v0.3 'directed fetch by URL, never by open search' rule is gone everywhere
+    a run reads it (CHANGELOG keeps the history)."""
+
+    _STALE = re.compile(r"directed[- ]fetch|directed URL", re.IGNORECASE)
+
+    def test_no_directed_fetch_instruction_remains(self):
+        files = [_REPO_ROOT / "SKILL.md", _REPO_ROOT / "README.md",
+                 *sorted((_REPO_ROOT / "references").glob("*.md")),
+                 *sorted((_REPO_ROOT / "scripts").glob("*.py"))]
+        offenders = [p.name for p in files if self._STALE.search(p.read_text(encoding="utf-8"))]
+        self.assertEqual(offenders, [])
+
+    def test_retrieval_protocol_is_documented_where_m1_reads(self):
+        text = (_REPO_ROOT / "references" / "macro_appendix.md").read_text(encoding="utf-8")
+        self.assertIn("## Retrieval protocol and the source whitelist (v0.41)", text)
+        for rule in ("R1", "R2", "R3", "R4", "R5", "R6"):
+            self.assertIn(f"**{rule}", text)
+        skill = (_REPO_ROOT / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("references/source_whitelist.json", skill)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -65,7 +65,7 @@ intent of the original scoping rule. `quality_screen.py` emits
 `passed_industries` for exactly this purpose.
 
 **This is a pure sequencing move.** M1's internal logic, its sources, the
-directed-fetch policy and the C2 corroboration hard gate are **unchanged**. M2
+retrieval policy and the C2 corroboration hard gate are **unchanged**. M2
 (per-stock scenarios) stays after ranking, since it is scoped to the final 15.
 
 > **Superseded in v0.4 (C5): M1 runs after 3a again — and that is now safe.** The

@@ -58,8 +58,9 @@ banking channels (Standard Chartered HK, Citi HK, and similar), the skill:
   toward a low (but non-zero) anchor, not shrunk to the median — see `build_rankings.py` A4.
 - **Consensus is not alpha.** Crowding is rebuilt to carry exit-liquidity risk (days-to-
   liquidate) and consensus is weighted by holder style-diversity, not raw count.
-- **Primary sources outrank secondary.** Macro facts are central-bank/official, gated by a
-  hard ≥2-primary-tier corroboration rule with per-sentence attribution.
+- **Primary sources outrank secondary.** Macro facts come only from a closed whitelist of
+  central banks, official statistics and four named outlets (`source_whitelist.json`,
+  v0.41), gated by a hard ≥2-source corroboration rule with per-sentence attribution.
 - **Honesty about method is part of the product.** Every selection bias, data fallback, and
   source-filtering rule is disclosed in the report.
 

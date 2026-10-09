@@ -220,7 +220,7 @@ If fewer than 7 PDFs are supplied, validation stops the pipeline and asks the us
 | --------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Layer 1 — Extraction       | 0–1e        | `validate_uploads.py`,`resolve_tickers.py`,`extract_holdings.py`,`layer1_report.py`                                                                                        |
 | Layer 2 — Overlap & Screen | 2a–2g       | `overlap_analysis.py`,`providers/registry.py`,`quality_screen.py`,`compute_scores.py`,`benchmark_weights.py`,`consensus_signal.py`,`crowding_signal.py`,`layer2_report.py` |
-| Macro (v0.4: after 3a)      | M1, M1b      | Claude directed-fetch, scoped to the ranked names' industries →`macro_checkpoint.md`(v0.33:**+ expectations/sentiment facet**) +`macro_factors.json`,`sector_logic.json`  |
+| Macro (v0.4: after 3a)      | M1, M1b      | Claude search-first fetch (source whitelist, v0.41), scoped to the ranked names' industries →`macro_checkpoint.md`(v0.33:**+ expectations/sentiment facet**) +`macro_factors.json`,`sector_logic.json`  |
 | Important Notice (v0.33)    | H1           | Claude →`important_notice_checkpoint.md`— outside every scoring layer; rendered after the appendices, before methodology                                                 |
 | Layer 3 — Ranking & Advice | 3a–3d + PDF | `build_rankings.py`,`etf_relative_strength.py`,`coherence_audit.py`,`layer3_report.py`,`build_report.py`                                                                   |
 
@@ -234,7 +234,7 @@ Full orchestration logic and error recovery rules: [`SKILL.md`](SKILL.md).
 3a     build_rankings.py ──► rankings.json      (sole author of rank; reads no macro)
       │                         │   READ-ONLY below this line
       ├─► 3a-bis-i etf_relative_strength.py ──► etf_relative_strength.json
-      ├─► M1  Claude directed-fetch ──► macro_checkpoint.md + macro_factors.json
+      ├─► M1  Claude search-first ───► macro_checkpoint.md + macro_factors.json
       └─► M1b Claude ────────────────► sector_logic.json
                                         │   (scoped to the industries in rankings.json)
                                         ▼

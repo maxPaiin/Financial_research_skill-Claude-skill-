@@ -151,6 +151,13 @@ accepted. Within `important_notice_checkpoint.md`, **square brackets are reserve
 for citations** — the deterministic gate reads them, and a single-source bracket
 fails the run. The explicit not-found statement above needs no citation.
 
+**Whitelisted names only (v0.41).** Each source in a bracket must start with an
+alias of an institution in `references/source_whitelist.json` (`Reuters 2026-08-04`,
+`BlackRock Investment Institute 2026-07`, `Fed Financial Stability Report 2026-05`),
+and that institution must have a fetched page in `sources_log.json`. Retrieval
+follows R1–R6 in `references/macro_appendix.md`: search first, fetch only
+whitelisted results, never retry a failed fetch, at most three queries per claim.
+
 ### H2.4 Cost is contained — no new retrieval scope
 
 M1's scope is the **industries of the ranked stocks** (v0.4 C5; it was the
@@ -252,6 +259,7 @@ hard property (H0), so the gate must not require the section to exist.
 | Closing argument, once | `already fully priced` appears **exactly once** | H4.4 |
 | Attribution | at least one bracketed citation, unless the whole section is not-found | H2.3 |
 | Two sources | every bracket names ≥2 sources (`;`-separated, or adjacent brackets) | H2.2 |
+| Whitelist (v0.41) | every source in a bracket starts with an alias in `source_whitelist.json`, and its institution has a page in `sources_log.json` | C2, R6 |
 | Per-entry sourcing | every `### ` block has a citation **or** the not-found statement | H4.3 |
 | Constructive register | no "for reference only" / "does not constitute investment advice" / "consult a financial adviser" | H0.2, acceptance 5 |
 | Neutral register | no "risk warning" anywhere in the section | H4.2, acceptance 8 |

@@ -49,9 +49,10 @@ numbers from this run, **plus the three v0.3 disclosures**:
    The replacement is independence weighting of the funds (N_eff, v0.4); fund-style labels are
    shown for context only and enter no number.
 
-7. **Source-selection-method disclosure** — state that macro/expectations facts use a
-   primary-first, cross-source corroboration HARD gate (≥2 primary-tier sources per fact,
-   per-sentence attribution), which structurally excludes uncorroborated low-trust material.
+7. **Source-selection-method disclosure** — state that macro/expectations facts come only
+   from a fixed source whitelist and use a cross-source corroboration HARD gate (≥2
+   whitelisted sources per fact, per-sentence attribution), which structurally excludes
+   uncorroborated low-trust material.
    A curated source policy is itself a stance and must be transparent.
 
 **v0.4 additions (mandatory, each stated ONCE in the framing section — never per card):**
