@@ -5,9 +5,32 @@ describes the current version; this file keeps the history and the reasons.
 
 Corrections and additions ship as separate version lines, so a reader can tell which changes
 *corrected* behaviour and which *added* it. v0.32 was a correction line, and so is v0.34,
-released inside v0.4 (decision DEC-6 of the v0.4 update specification).
+released inside v0.4 (decision DEC-6 of the v0.4 update specification), and so is v0.41.
 
 ---
+
+## v0.41 — search-first retrieval and an enforced source whitelist (2026-10-09)
+
+A correction line inside v0.4: no score, rank, tier, consensus or overlay rule changes.
+
+- **Retrieval is search-first (R1–R6, `references/macro_appendix.md`).** v0.3 told Claude to
+  fetch primary sources by a known URL and never through search, but named no URL, so Claude
+  built URLs. The fetch tool refuses a URL that has not appeared in the conversation — in some
+  sessions only after a five-minute permission wait (314 s measured). A blind test run on seven
+  real factsheets spent 17 of its 28 minutes in M1, about 10.5 of them in two such waits.
+  Claude now searches with the domain in the query, fetches only results on a whitelisted
+  domain, never retries a failed fetch, stops after three queries per fact, and logs every
+  fetched page in `sources_log.json`.
+- **The primary tier is a closed whitelist.** `references/source_whitelist.json` lists each
+  institution's domains and citation aliases; the US Census Bureau closes the old "…".
+  `scripts/source_whitelist.py` maps URLs and citations to institutions.
+- **The gate checks names and provenance.** `check_checkpoints.py` fails a citation outside
+  the whitelist, a cited institution with no logged page, and a logged URL off the whitelist.
+  The run's own data (Layer 2, SEC EDGAR, yfinance) stays citable where the spec uses it, never
+  in the notice or `macro_factors.json`. Before v0.41 any bracketed name passed: a test run
+  cited the Bank of England 27 times.
+- `sources_log.json` is copied to the outputs directory with the checkpoints, and the report's
+  methodology names the whitelisted institutions.
 
 ## v0.4 — consensus signal v2 and a token-lean, portable runtime (2026-10-01)
 
