@@ -138,6 +138,129 @@ class TestCitationMapping(unittest.TestCase):
                          ["Fed SEP 2026-09", "BLS CPI"])
 
 
+class TestGateWhitelist(unittest.TestCase):
+    def test_whitelisted_and_fetched_sources_pass(self):
+        def setup(work):
+            (work / "macro_checkpoint.md").write_text(
+                "Rates rose. [Fed FOMC statement 2026-09-16; BLS CPI release 2026-09-11]\n")
+            _log(work, [_FED, _BLS])
+        self.assertTrue(_review(setup)["ok"])
+
+    def test_unlisted_source_in_a_checkpoint_fails(self):
+        def setup(work):
+            (work / "macro_checkpoint.md").write_text(
+                "Rates rose. [Fed FOMC statement; SCMP 2026-09-01]\n")
+            _log(work, [_FED])
+        res = _review(setup)
+        self.assertFalse(res["ok"])
+        self.assertTrue(any("'SCMP 2026-09-01'" in p and "not a whitelisted source" in p
+                            for p in res["problems"]), res["problems"])
+
+    def test_unlisted_source_in_the_expectations_checkpoint_fails(self):
+        def setup(work):
+            (work / "expectations_checkpoint.md").write_text(
+                "Best Average Worst. [Fed SEP; Motley Fool]\n")
+            _log(work, [_FED])
+        self.assertFalse(_review(setup)["ok"])
+
+    def test_unlisted_source_in_json_source_lists_fails(self):
+        for name, payload in (
+            ("macro_factors.json", {"policy_rate_direction": "tightening",
+                                    "inflation_trend": "rising",
+                                    "sources": {"policy_rate_direction": ["Fed FOMC", "Kitco"]}}),
+            ("sector_logic.json", {"industries": {"technology": {"sources": ["Omdia"]}}}),
+        ):
+            with self.subTest(file=name):
+                def setup(work, name=name, payload=payload):
+                    (work / name).write_text(json.dumps(payload))
+                    _log(work, [_FED])
+                res = _review(setup)
+                self.assertFalse(res["ok"])
+                self.assertTrue(any(p.startswith(name) and "not a whitelisted source" in p
+                                    for p in res["problems"]), res["problems"])
+
+
+class TestGateInternalData(unittest.TestCase):
+    """The run's own data (Layer 2, SEC EDGAR, yfinance) is evidence about a stock,
+    not a macro or sentiment source."""
+
+    def test_internal_data_is_accepted_in_sector_logic(self):
+        def setup(work):
+            (work / "sector_logic.json").write_text(json.dumps({"industries": {"technology": {
+                "sources": ["Fed Beige Book 2026-09", "Layer 2 fundamentals (SEC EDGAR)"]}}}))
+            _log(work, [_FED])
+        self.assertTrue(_review(setup)["ok"], _review(setup)["problems"])
+
+    def test_internal_data_is_refused_in_the_notice_and_macro_factors(self):
+        for name, write in (
+            ("important_notice_checkpoint.md",
+             lambda w: (w / "important_notice_checkpoint.md").write_text(
+                 "## Important Notice\nExpectations bar. Sentiment cycle. regime. already fully "
+                 "priced.\n\n### AAA — technology\n\nElevated. [Fed FSR 2026-05; Layer 2]\n")),
+            ("macro_factors.json",
+             lambda w: (w / "macro_factors.json").write_text(json.dumps(
+                 {"sources": {"inflation_trend": ["BLS CPI", "yfinance"]}}))),
+        ):
+            with self.subTest(file=name):
+                def setup(work, write=write):
+                    write(work)
+                    _log(work, [_FED, _BLS])
+                res = _review(setup)
+                self.assertFalse(res["ok"])
+                self.assertTrue(any(p.startswith(name) and "run's own data" in p
+                                    for p in res["problems"]), res["problems"])
+
+    def test_a_repeated_bad_source_is_reported_once(self):
+        def setup(work):
+            (work / "macro_checkpoint.md").write_text(
+                "A. [Fed SEP; BoE FPC 2026-07]\nB. [Fed SEP; BoE FPC 2026-07]\n")
+            _log(work, [_FED])
+        problems = [p for p in _review(setup)["problems"] if "BoE FPC" in p]
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("(2 times)", problems[0])
+
+
+class TestGateSourcesLog(unittest.TestCase):
+    def test_citations_without_a_log_fail(self):
+        def setup(work):
+            (work / "macro_checkpoint.md").write_text("Rates rose. [Fed; BLS]\n")
+        res = _review(setup)
+        self.assertFalse(res["ok"])
+        self.assertTrue(any("sources_log.json: missing" in p for p in res["problems"]))
+
+    def test_cited_institution_must_have_a_fetched_page(self):
+        def setup(work):
+            (work / "macro_checkpoint.md").write_text("Rates rose. [Fed; BLS]\n")
+            _log(work, [_FED])                       # BLS cited, never fetched
+        res = _review(setup)
+        self.assertFalse(res["ok"])
+        self.assertTrue(any("Bureau of Labor Statistics" in p and "(R6)" in p
+                            for p in res["problems"]), res["problems"])
+
+    def test_a_fetched_page_off_the_whitelist_fails(self):
+        def setup(work):
+            (work / "macro_checkpoint.md").write_text("Rates rose. [Fed; BLS]\n")
+            _log(work, [_FED, _BLS, "https://www.scmp.com/business/x"])
+        res = _review(setup)
+        self.assertFalse(res["ok"])
+        self.assertTrue(any("scmp.com" in p and "(R3)" in p for p in res["problems"]))
+
+    def test_no_macro_stage_needs_no_log(self):
+        # The macro stages stay removable: no citation, no log, gate passes.
+        self.assertTrue(_review(lambda work: None)["ok"])
+
+    def test_not_found_notice_needs_no_log(self):
+        def setup(work):
+            (work / "important_notice_checkpoint.md").write_text(
+                "## Important Notice — Expectations Environment and Sentiment Cycle\n\n"
+                "The tool has no regime-detection capability. A Tier A name is more likely "
+                "already fully priced.\n\n### AAA — technology\n\n**Expectations bar.** No "
+                "publicly available evidence meeting the corroboration standard was found "
+                "for this group.\n\n**Sentiment cycle.** No publicly available evidence "
+                "meeting the corroboration standard was found for this group.\n")
+        self.assertTrue(_review(setup)["ok"], _review(setup)["problems"])
+
+
 class TestCli(unittest.TestCase):
     def test_check_exit_codes(self):
         import contextlib

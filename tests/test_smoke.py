@@ -564,6 +564,12 @@ class TestLayer3Slice(unittest.TestCase):
 # check_checkpoints — D4 deterministic review gate
 # -----------------------------------------------------------------------------
 
+def _write_sources_log(work: Path, urls: list[str]) -> None:
+    """v0.41 R6: the pages a run fetched; the gate checks every citation against it."""
+    (work / "sources_log.json").write_text(json.dumps(
+        {"version": "0.41", "fetched": [{"stage": "M1", "url": u} for u in urls]}))
+
+
 class TestCheckpointGate(unittest.TestCase):
     def _seed(self, work: Path):
         (work / "layer1_extraction.md").write_text(
@@ -598,6 +604,8 @@ class TestCheckpointGate(unittest.TestCase):
             self.assertFalse(res["ok"])
             (work / "macro_checkpoint.md").write_text(
                 "Fed held rates steady. [Fed; Reuters]\n")
+            _write_sources_log(work, ["https://www.federalreserve.gov/monetarypolicy/x.htm",
+                                      "https://www.reuters.com/markets/x"])
             self.assertTrue(cc.review(work, set())["ok"])
 
     def test_bias_note_regression_caught(self):
@@ -1399,6 +1407,12 @@ class TestImportantNoticeGate(unittest.TestCase):
             {"ticker": "AVGO", "industry": "technology"},
             {"ticker": "JNJ", "industry": "healthcare"},
         ]}))
+        _write_sources_log(work, [                      # v0.41: every cited source fetched
+            "https://www.reuters.com/markets/x",
+            "https://www.blackrock.com/corporate/insights/blackrock-investment-institute/x",
+            "https://www.federalreserve.gov/monetarypolicy/x.htm",
+            "https://www.wsj.com/economy/x",
+        ])
         if notice is not None:
             (work / "important_notice_checkpoint.md").write_text(notice)
 

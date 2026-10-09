@@ -41,6 +41,10 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import source_whitelist as sw  # noqa: E402  (v0.41)
+
 # filename -> (required_substrings, optional)
 # `optional=True` files are only checked when present (the macro subsystem may
 # not have run); a required-but-absent optional file is promoted via CLI flags.
@@ -357,6 +361,129 @@ def check_file(path: Path, required: list[str],
     return problems
 
 
+# --- v0.41: the source whitelist ----------------------------------------------
+# A citation may name only an institution in references/source_whitelist.json,
+# and every cited institution must have at least one fetched page, on one of its
+# whitelisted domains, recorded in <work>/sources_log.json (Retrieval protocol,
+# references/macro_appendix.md). Brackets are reserved for citations in these files.
+_CITED_MD = ("macro_checkpoint.md", "expectations_checkpoint.md", _NOTICE)
+_SOURCES_LOG = "sources_log.json"
+
+
+def _json_source_lists(work_dir: Path) -> tuple[dict[str, list[str]], list[str]]:
+    """({file: [cited source names]}, problems) for macro_factors.json and sector_logic.json."""
+    lists: dict[str, list[str]] = {}
+    problems: list[str] = []
+    for name in ("macro_factors.json", "sector_logic.json"):
+        path = work_dir / name
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as e:
+            problems.append(f"{name}: not valid JSON ({e})")
+            continue
+        items: list[str] = []
+        if name == "macro_factors.json":
+            sources = data.get("sources") if isinstance(data, dict) else None
+            for value in (sources.values() if isinstance(sources, dict) else []):
+                items += value if isinstance(value, list) else [value]
+        else:
+            industries = data.get("industries") if isinstance(data, dict) else None
+            for entry in (industries.values() if isinstance(industries, dict) else []):
+                value = entry.get("sources") if isinstance(entry, dict) else None
+                items += value if isinstance(value, list) else ([value] if value else [])
+        lists[name] = [str(i).strip() for i in items if str(i).strip()]
+    return lists, problems
+
+
+def check_sources(work_dir: Path) -> dict[str, list[str]]:
+    """{file: problems} for the v0.41 whitelist and sources-log rules; {} when
+    nothing is cited and no log exists (the macro stages stay removable)."""
+    found: list[tuple[str, str, str]] = []           # (file, item, where)
+    for name in _CITED_MD:
+        path = work_dir / name
+        if not path.exists():
+            continue
+        for m in _CITATION_RE.finditer(path.read_text(encoding="utf-8")):
+            found += [(name, item, m.group(0)) for item in sw.citation_items(m.group(0))]
+    lists, problems_json = _json_source_lists(work_dir)
+    for name, items in lists.items():
+        found += [(name, item, "its 'sources'") for item in items]
+
+    log_path = work_dir / _SOURCES_LOG
+    out: dict[str, list[str]] = {}
+    for p in problems_json:
+        out.setdefault(p.split(":", 1)[0], []).append(p)
+    if not found and not log_path.exists():
+        return out
+
+    try:
+        whitelist = sw.load()
+    except sw.WhitelistError as e:
+        out.setdefault("source_whitelist.json", []).append(f"{e} — the gate fails closed")
+        return out
+
+    cited: dict[str, set[str]] = {}
+    refused_internal = sw.internal_refused_in()
+    seen: dict[tuple[str, str], int] = {}             # (file, problem item) -> count
+    first_where: dict[tuple[str, str], tuple[str, str]] = {}
+    for name, item, where in found:
+        iid = sw.institution_for_citation(item)
+        if iid is not None:
+            cited.setdefault(iid, set()).add(name)
+            continue
+        if sw.is_internal_citation(item) and name not in refused_internal:
+            continue                                  # the run's own data (Layer 2, EDGAR)
+        kind = "internal" if sw.is_internal_citation(item) else "unlisted"
+        key = (name, item)
+        seen[key] = seen.get(key, 0) + 1
+        first_where.setdefault(key, (where, kind))
+    for (name, item), n in seen.items():
+        where, kind = first_where[(name, item)]
+        times = f" ({n} times)" if n > 1 else ""
+        if kind == "internal":
+            msg = (f"{name}: '{item}' in {where}{times} is the run's own data — it cannot be a "
+                   "source here; cite two whitelisted institutions or use the not-found statement")
+        else:
+            msg = (f"{name}: '{item}' in {where}{times} is not a whitelisted source "
+                   "(references/source_whitelist.json) — cite a whitelisted institution, "
+                   "or leave the fact out (C2)")
+        out.setdefault(name, []).append(msg)
+
+    if not log_path.exists():
+        out.setdefault(_SOURCES_LOG, []).append(
+            f"{_SOURCES_LOG}: missing — record every page fetched in M1, M1b, M2 and H1 "
+            "(macro_appendix.md, Retrieval protocol R6)")
+        return out
+    try:
+        log = json.loads(log_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        out.setdefault(_SOURCES_LOG, []).append(f"{_SOURCES_LOG}: not valid JSON ({e})")
+        return out
+    entries = log.get("fetched") if isinstance(log, dict) else None
+    if not isinstance(entries, list):
+        out.setdefault(_SOURCES_LOG, []).append(f"{_SOURCES_LOG}: no 'fetched' list")
+        return out
+
+    fetched: set[str] = set()
+    for entry in entries:
+        url = entry.get("url") if isinstance(entry, dict) else None
+        iid = sw.institution_for_url(url or "")
+        if iid is None:
+            out.setdefault(_SOURCES_LOG, []).append(
+                f"{_SOURCES_LOG}: {url!r} is not on a whitelisted domain — fetch only "
+                "search results on references/source_whitelist.json domains (R3)")
+        else:
+            fetched.add(iid)
+    for iid in sorted(cited):
+        if iid not in fetched:
+            out.setdefault(_SOURCES_LOG, []).append(
+                f"{_SOURCES_LOG}: {', '.join(sorted(cited[iid]))} cite "
+                f"{whitelist[iid]['name']}, but no fetched page of it is recorded (R6)")
+    return out
+
+
 _TIER_ORDER = ["A", "B", "C"]
 
 
@@ -432,6 +559,10 @@ def review(work_dir: Path, required_optional: set[str]) -> dict:
     coherence_path = work_dir / "coherence.json"
     if coherence_path.exists() or "coherence.json" in required_optional:
         results["coherence.json"] = check_coherence(coherence_path)
+
+    # v0.41: cited sources must be whitelisted and fetched.
+    for name, probs in check_sources(work_dir).items():
+        results[name] = results.get(name, []) + probs
 
     all_problems = [p for probs in results.values() for p in probs]
     return {

@@ -114,6 +114,9 @@ _CHECKPOINT_FILES = [
     # demotion against the three factor readings that produced it — the point of
     # keeping the judgment out of the composite is that it stays separable.
     "coherence.json",
+    # v0.41: every page fetched for the macro, expectations and notice stages, so
+    # a reader can open each cited source.
+    "sources_log.json",
 ]
 
 _MARGIN = 18 * mm
