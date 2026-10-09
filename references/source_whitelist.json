@@ -1,0 +1,79 @@
+{
+  "version": "0.41",
+  "about": "The closed list of primary-tier sources for the macro, expectations and notice stages (C2). A page counts only if its URL is on one of an institution's domains; a citation counts only if it starts with one of that institution's aliases. Edit this file between runs, never during one.",
+  "internal": {
+    "about": "The run's own data, fetched by the scripts. Citable as evidence about a stock or a sector's fundamentals, never as a macro or sentiment source: no sources_log entry is needed, and it is refused in the files listed under not_in.",
+    "aliases": ["Layer 1", "Layer 2", "Layer 3", "SEC EDGAR", "EDGAR", "yfinance"],
+    "not_in": ["important_notice_checkpoint.md", "macro_factors.json"]
+  },
+  "institutions": {
+    "fed": {
+      "name": "US Federal Reserve System (Board, regional Reserve Banks, FRED)",
+      "aliases": ["Fed", "FOMC", "Federal Reserve", "Beige Book", "FRED",
+                  "New York Fed", "NY Fed", "St. Louis Fed", "Minneapolis Fed",
+                  "Cleveland Fed", "Boston Fed", "Atlanta Fed", "Chicago Fed",
+                  "Dallas Fed", "Kansas City Fed", "Philadelphia Fed", "Richmond Fed",
+                  "San Francisco Fed"],
+      "domains": ["federalreserve.gov", "newyorkfed.org", "stlouisfed.org",
+                  "minneapolisfed.org", "clevelandfed.org", "bostonfed.org",
+                  "atlantafed.org", "chicagofed.org", "dallasfed.org",
+                  "kansascityfed.org", "philadelphiafed.org", "richmondfed.org",
+                  "frbsf.org"]
+    },
+    "ecb": {
+      "name": "European Central Bank",
+      "aliases": ["ECB", "European Central Bank"],
+      "domains": ["ecb.europa.eu"]
+    },
+    "boj": {
+      "name": "Bank of Japan",
+      "aliases": ["BoJ", "Bank of Japan"],
+      "domains": ["boj.or.jp"]
+    },
+    "bls": {
+      "name": "US Bureau of Labor Statistics",
+      "aliases": ["BLS", "Bureau of Labor Statistics"],
+      "domains": ["bls.gov"]
+    },
+    "bea": {
+      "name": "US Bureau of Economic Analysis",
+      "aliases": ["BEA", "Bureau of Economic Analysis"],
+      "domains": ["bea.gov"]
+    },
+    "census": {
+      "name": "US Census Bureau",
+      "aliases": ["US Census Bureau", "Census Bureau", "Census"],
+      "domains": ["census.gov"]
+    },
+    "eurostat": {
+      "name": "Eurostat",
+      "aliases": ["Eurostat"],
+      "domains": ["ec.europa.eu/eurostat"]
+    },
+    "estat": {
+      "name": "Statistics of Japan (e-Stat, Statistics Bureau of Japan)",
+      "aliases": ["e-Stat", "Statistics Bureau of Japan", "Statistics Japan"],
+      "domains": ["e-stat.go.jp", "stat.go.jp"]
+    },
+    "reuters": {
+      "name": "Reuters",
+      "aliases": ["Reuters"],
+      "domains": ["reuters.com"]
+    },
+    "wsj": {
+      "name": "The Wall Street Journal",
+      "aliases": ["WSJ", "Wall Street Journal", "The Wall Street Journal"],
+      "domains": ["wsj.com"]
+    },
+    "blackrock": {
+      "name": "BlackRock (incl. BlackRock Investment Institute)",
+      "aliases": ["BlackRock", "BlackRock Investment Institute", "BII"],
+      "domains": ["blackrock.com"]
+    },
+    "fitch": {
+      "name": "Fitch Ratings",
+      "aliases": ["Fitch", "Fitch Ratings"],
+      "domains": ["fitchratings.com"]
+    }
+  }
+}
